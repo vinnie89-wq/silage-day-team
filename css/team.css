@@ -50,3 +50,26 @@
 .cal-tip { margin: 10px 0 0; font-size: 0.875rem; }
 .meet-card-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .meet-card-btns .btn { width: auto; margin: 0; }
+
+/* Bigger logo and "Team hub" title in the banner (Team hub, news and photo pages) */
+.team-app .header-logo, .approve-page .header-logo { height: 76px; }
+.team-app .header-date, .approve-page .header-date { font-size: 1.375rem; line-height: 1.15; letter-spacing: 0.5px; }
+.approve-page .header-date span { display: block; font-size: 0.9375rem; letter-spacing: 0.3px; }
+@media (min-width: 760px) {
+  .team-app .header-logo, .approve-page .header-logo { height: 96px; }
+  .team-app .header-date, .approve-page .header-date { font-size: 1.75rem; }
+  .approve-page .header-date span { font-size: 1.0625rem; }
+}
+@media (max-width: 380px) {
+  .team-app .header-logo, .approve-page .header-logo { height: 62px; }
+  .team-app .header-date, .approve-page .header-date { font-size: 1.125rem; }
+}
+/* Keep "Team hub" on one line and the buttons on screen */
+.team-app .header-date, .approve-page .header-date { flex: 1; min-width: 0; white-space: nowrap; }
+.approve-page .header-date span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.approve-page .header-row { gap: 10px; }
+.back-hub { order: 3; margin-left: 0; } /* on the right, where "Sign out" sits on the hub */
+@media (max-width: 420px) {
+  .team-app .header-logo, .approve-page .header-logo { height: 64px; }
+  .team-app .header-date, .approve-page .header-date { font-size: 1.25rem; }
+}
