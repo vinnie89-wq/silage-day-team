@@ -195,6 +195,7 @@ function showDashboard() {
     '<section class="card"><h2>🗓️ Next meeting</h2>' + (m ? meetingSummary(m) : '<p class="muted">None booked. <a href="#meetings">Add one</a>.</p>') + '</section>' +
     '<section class="card"><h2>✅ Actions</h2><div class="dash-grid">' +
       tile(open.length, "open actions", "#actions") + tile(overdue.length, "overdue", "#actions", overdue.length > 0) +
+      tile(open.filter((a) => ragOf(a) === "amber").length, "due in the next 7 days", "#actions") +
       tile(open.filter((a) => (a.owner || "").toLowerCase() === (user.displayName || "").toLowerCase() || (a.owner || "").toLowerCase() === user.email.toLowerCase()).length, "yours", "#actions") +
     '</div></section>' +
     '<section class="card"><h2>📷 Photos and 📣 news</h2>' + (s ?
@@ -313,52 +314,130 @@ function meetingForm(m) {
 }
 
 
-/* ---------- Actions ---------- */
+/* ---------- Actions ----------
+   Each action: text, owner, due, done, status, comments [{ by, name, at, text }].
+   Colour (RAG): red = past its due date · amber = due in the next 7 days ·
+   green = on plan · blue = complete · grey = no due date. */
+const STATUSES = { todo: "Not started", doing: "In progress", waiting: "Waiting on someone", blocked: "Blocked", done: "Complete" };
+const RAG = { red: "Overdue", amber: "Due within 7 days", green: "On plan", grey: "No date", blue: "Complete" };
+let actionSort = "due", actionColour = "";
+const openEdits = new Set();   // actions whose details are open – kept open when the list refreshes
+function statusOf(a) { return a.done ? "done" : (STATUSES[a.status] && a.status !== "done" ? a.status : "todo"); }
+function ragOf(a) {
+  if (a.done) return "blue";
+  const due = tsMs(a.due);
+  if (!due) return "grey";
+  const today = new Date().setHours(0, 0, 0, 0);
+  if (due < today) return "red";
+  if (due < today + 8 * 864e5) return "amber";
+  return "green";
+}
+function sortActions(list) {
+  const byDue = (a, b) => (tsMs(a.due) || 9e15) - (tsMs(b.due) || 9e15);
+  const sorts = {
+    due: (a, b) => (a.done - b.done) || byDue(a, b),
+    code: (a, b) => (a.done - b.done) || (codeOf(a.text) ? 0 : 1) - (codeOf(b.text) ? 0 : 1) || String(codeOf(a.text) || "").localeCompare(String(codeOf(b.text) || "")) || byDue(a, b),
+    owner: (a, b) => (a.done - b.done) || (a.owner ? 0 : 1) - (b.owner ? 0 : 1) || String(a.owner || "").localeCompare(String(b.owner || "")) || byDue(a, b),
+    status: (a, b) => Object.keys(STATUSES).indexOf(statusOf(a)) - Object.keys(STATUSES).indexOf(statusOf(b)) || byDue(a, b),
+    newest: (a, b) => (tsMs(b.createdAt) || 0) - (tsMs(a.createdAt) || 0)
+  };
+  return list.slice().sort(sorts[actionSort] || sorts.due);
+}
+
 function showActions() {
-  // Keep anything half-typed in the "New action" form when the list updates
+  // Keep anything half-typed when the list updates
   const keep = ["a-text", "a-owner", "a-due"].map((id) => $(id) ? $(id).value : "");
-  const list = actions
-    .filter((a) => actionFilter === "all" || (actionFilter === "open" ? !a.done : actionFilter === "mine" ? !a.done && mine(a) : a.done))
-    .sort((a, b) => (a.done - b.done) || ((tsMs(a.due) || 9e15) - (tsMs(b.due) || 9e15)));
+  const drafts = {};
+  hub.querySelectorAll("[data-comment-input]").forEach((el) => { if (el.value) drafts[el.dataset.commentInput] = el.value; });
+  const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-comment-input], [data-owner]");
+  if (typing && hub.querySelector(".action-list")) return; // don't redraw under someone typing a comment
+  const base = actions.filter((a) => actionFilter === "all" || (actionFilter === "open" ? !a.done : actionFilter === "mine" ? !a.done && mine(a) : a.done));
+  const counts = {}; base.forEach((a) => { const r = ragOf(a); counts[r] = (counts[r] || 0) + 1; });
+  const list = sortActions(base.filter((a) => !actionColour || ragOf(a) === actionColour));
   const f = (k, label) => '<button type="button" class="chip' + (actionFilter === k ? " on" : "") + '" data-filter="' + k + '">' + label + '</button>';
   hub.innerHTML = '<h1 class="page-title">Actions</h1>' +
     '<form class="card form-card add-action" id="af"><label class="field" for="a-text">New action</label>' +
-      '<input class="input" id="a-text" maxlength="300" placeholder="What needs doing?" required>' +
+      '<input class="input" id="a-text" maxlength="300" placeholder="What needs doing? Start with a plan code to link it, e.g. G1 · …" required>' +
       '<div class="action-row"><div><label class="field" for="a-owner">Owner</label><input class="input" id="a-owner" maxlength="60" list="owners"></div>' +
       '<div><label class="field" for="a-due">Due</label><input class="input" id="a-due" type="date"></div></div>' +
       '<datalist id="owners">' + [...new Set(actions.map((a) => a.owner).filter(Boolean))].map((o) => '<option value="' + esc(o) + '">').join("") + '</datalist>' +
       '<button type="submit" class="btn">Add action</button></form>' +
     '<div class="chips" role="group" aria-label="Show">' + f("open", "Open") + f("mine", "Mine") + f("done", "Done") + f("all", "All") + '</div>' +
+    '<div class="rag-key" role="group" aria-label="Filter by colour">' + Object.entries(RAG).map(([k, l]) =>
+      '<button type="button" class="rag-chip rag-' + k + (actionColour === k ? " on" : "") + '" data-colour="' + k + '"><span class="rag-dot"></span>' + l + ' <b>' + (counts[k] || 0) + '</b></button>').join("") + '</div>' +
+    '<div class="sort-row"><label for="a-sort">Sort by</label><select class="input" id="a-sort">' +
+      [["due", "Due date"], ["code", "Plan code"], ["owner", "Owner"], ["status", "Status"], ["newest", "Newest first"]].map(([k, l]) => '<option value="' + k + '"' + (actionSort === k ? " selected" : "") + '>' + l + '</option>').join("") +
+    '</select><span class="muted">' + list.length + ' shown' + (actionColour ? ' · <button type="button" class="link-btn" id="clear-colour">show all colours</button>' : '') + '</span></div>' +
     (list.length ? '<ul class="action-list">' + list.map(actionItem).join("") + '</ul>' : '<p class="pad-x muted">Nothing here.</p>');
   ["a-text", "a-owner", "a-due"].forEach((id, i) => { $(id).value = keep[i]; });
+  Object.entries(drafts).forEach(([id, v]) => { const el = hub.querySelector('[data-comment-input="' + id + '"]'); if (el) el.value = v; });
   hub.querySelectorAll("[data-filter]").forEach((b) => b.onclick = () => { actionFilter = b.dataset.filter; showActions(); });
-  hub.querySelectorAll("[data-done]").forEach((c) => c.onchange = () => fb.F.updateDoc(fb.F.doc(fb.db, "actions", c.dataset.done), { done: c.checked, updatedAt: fb.F.serverTimestamp() }));
-  hub.querySelectorAll("[data-del-action]").forEach((b) => b.onclick = () => { if (confirm("Delete this action?")) fb.F.deleteDoc(fb.F.doc(fb.db, "actions", b.dataset.delAction)); });
+  hub.querySelectorAll("[data-colour]").forEach((b) => b.onclick = () => { actionColour = actionColour === b.dataset.colour ? "" : b.dataset.colour; showActions(); });
+  if ($("clear-colour")) $("clear-colour").onclick = () => { actionColour = ""; showActions(); };
+  $("a-sort").onchange = (e) => { actionSort = e.target.value; showActions(); };
+  wireActions(hub);
   $("af").onsubmit = async (e) => {
     e.preventDefault();
     const { F, db } = fb;
     const due = $("a-due").value;
-    const form = e.target;
     await F.addDoc(F.collection(db, "actions"), {
       text: $("a-text").value.trim(), owner: $("a-owner").value.trim(),
-      due: due ? F.Timestamp.fromDate(new Date(due + "T12:00")) : null, done: false,
+      due: due ? F.Timestamp.fromDate(new Date(due + "T12:00")) : null, done: false, status: "todo", comments: [],
       createdBy: user.email, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp()
     });
     ["a-text", "a-owner", "a-due"].forEach((id) => { if ($(id)) $(id).value = ""; });
     if ($("a-text")) $("a-text").focus();
   };
 }
+
+function actionItem(a) {
+  const due = tsMs(a.due), rag = ragOf(a), st = statusOf(a), comments = Array.isArray(a.comments) ? a.comments : [];
+  const last = comments[comments.length - 1];
+  const dueIso = due ? new Date(due - new Date(due).getTimezoneOffset() * 6e4).toISOString().slice(0, 10) : "";
+  return '<li class="action rag-' + rag + (a.done ? " done" : "") + '">' +
+    '<input type="checkbox" id="ac-' + a.id + '" data-done="' + a.id + '"' + (a.done ? " checked" : "") + ' aria-label="Complete">' +
+    '<div class="action-body"><label for="ac-' + a.id + '"><span class="action-text">' + esc(a.text) + '</span></label>' +
+      '<span class="action-meta"><span class="rag-pill rag-' + rag + '">' + RAG[rag] + '</span> ' +
+        (a.done ? '' : '<span class="status-pill st-' + st + '">' + STATUSES[st] + '</span> ') + '· ' +
+        (a.owner ? esc(a.owner) : "No owner") + (due ? ' · due ' + fmtDay(due) : '') + (comments.length ? ' · 💬 ' + comments.length : '') + '</span>' +
+      (last ? '<span class="action-last">“' + esc(last.text.length > 110 ? last.text.slice(0, 109) + "…" : last.text) + '” – ' + esc(last.name || last.by || "") + '</span>' : '') +
+      '<details class="action-edit" data-edit-id="' + a.id + '"' + (openEdits.has(a.id) ? " open" : "") + '><summary>Status, owner, date and comments</summary>' +
+        '<div class="action-row"><div><label class="field" for="as-' + a.id + '">Status</label><select class="input" id="as-' + a.id + '" data-status="' + a.id + '">' +
+          Object.entries(STATUSES).map(([k, l]) => '<option value="' + k + '"' + (k === st ? " selected" : "") + '>' + l + '</option>').join("") + '</select></div>' +
+        '<div><label class="field" for="ad-' + a.id + '">Due</label><input class="input" id="ad-' + a.id + '" type="date" data-due="' + a.id + '" value="' + dueIso + '"></div></div>' +
+        '<label class="field" for="ao-' + a.id + '">Owner</label><input class="input" id="ao-' + a.id + '" data-owner="' + a.id + '" maxlength="60" list="owners" value="' + esc(a.owner || "") + '">' +
+        (comments.length ? '<ul class="comment-list">' + comments.map((c) => '<li><span>' + esc(c.text) + '</span><small>' + esc(c.name || c.by || "") + (c.at ? ' · ' + fmtDate(c.at) : '') + '</small></li>').join("") + '</ul>' : '') +
+        '<form class="comment-add" data-comment-form="' + a.id + '"><input class="input" data-comment-input="' + a.id + '" maxlength="500" placeholder="Add a comment or update…" aria-label="Comment"><button type="submit" class="btn alt small">Add</button></form>' +
+        '<button type="button" class="link-btn del-link" data-del-action="' + a.id + '">Delete this action</button>' +
+      '</details></div></li>';
+}
+
+// Make the ticks, status, date, owner, comments and delete work (Actions page and the plan)
+function wireActions(root) {
+  const { F, db } = fb;
+  const upd = (id, data) => F.updateDoc(F.doc(db, "actions", id), { ...data, updatedAt: F.serverTimestamp() });
+  root.querySelectorAll("[data-done]").forEach((c) => c.onchange = () => {
+    const a = actions.find((x) => x.id === c.dataset.done);
+    upd(c.dataset.done, { done: c.checked, status: c.checked ? "done" : (a && a.status && a.status !== "done" ? a.status : "todo") });
+  });
+  root.querySelectorAll("[data-status]").forEach((s) => s.onchange = () => upd(s.dataset.status, { status: s.value, done: s.value === "done" }));
+  root.querySelectorAll("[data-due]").forEach((d) => d.onchange = () => upd(d.dataset.due, { due: d.value ? F.Timestamp.fromDate(new Date(d.value + "T12:00")) : null }));
+  root.querySelectorAll("[data-owner]").forEach((o) => o.onchange = () => upd(o.dataset.owner, { owner: o.value.trim() }));
+  root.querySelectorAll("details.action-edit").forEach((d) => d.ontoggle = () => { if (d.open) openEdits.add(d.dataset.editId); else openEdits.delete(d.dataset.editId); });
+  root.querySelectorAll("[data-comment-form]").forEach((f) => f.onsubmit = async (e) => {
+    e.preventDefault();
+    const id = f.dataset.commentForm, input = f.querySelector("input"), text = input.value.trim();
+    if (!text) return;
+    const a = actions.find((x) => x.id === id);
+    const comments = (a && Array.isArray(a.comments) ? a.comments : []).concat({ by: user.email, name: user.displayName || user.email, at: Date.now(), text });
+    input.value = ""; input.blur();
+    try { await upd(id, { comments }); } catch (x) { alert("The comment didn't save: " + x.message); input.value = text; }
+  });
+  root.querySelectorAll("[data-del-action]").forEach((b) => b.onclick = () => { if (confirm("Delete this action?")) F.deleteDoc(F.doc(db, "actions", b.dataset.delAction)); });
+}
 function mine(a) {
   const o = (a.owner || "").toLowerCase();
   return o && (o === (user.displayName || "").toLowerCase() || o === user.email.toLowerCase() || (user.displayName || "").toLowerCase().split(" ")[0] === o);
-}
-function actionItem(a) {
-  const due = tsMs(a.due);
-  return '<li class="action' + (a.done ? " done" : "") + (isOverdue(a) ? " overdue" : "") + '">' +
-    '<input type="checkbox" id="ac-' + a.id + '" data-done="' + a.id + '"' + (a.done ? " checked" : "") + '>' +
-    '<label for="ac-' + a.id + '"><span class="action-text">' + esc(a.text) + '</span>' +
-    '<span class="action-meta">' + (a.owner ? esc(a.owner) : "No owner") + (due ? ' · due ' + fmtDay(due) + (isOverdue(a) ? ' – overdue' : '') : '') + '</span></label>' +
-    '<button type="button" class="icon-btn" data-del-action="' + a.id + '" aria-label="Delete action">✕</button></li>';
 }
 
 
@@ -554,12 +633,11 @@ function planDetail(plan, t) {
     '<div id="pt-form"></div></section>';
   const { F, db } = fb;
   el.querySelectorAll("[data-plan]").forEach((b) => b.onclick = () => { planSel = b.dataset.plan; drawPlan(); });
-  el.querySelectorAll("[data-done]").forEach((c) => c.onchange = () => F.updateDoc(F.doc(db, "actions", c.dataset.done), { done: c.checked, updatedAt: F.serverTimestamp() }));
-  el.querySelectorAll("[data-del-action]").forEach((b) => b.onclick = () => { if (confirm("Delete this action?")) F.deleteDoc(F.doc(db, "actions", b.dataset.delAction)); });
+  wireActions(el);
   $("pa").onsubmit = async (e) => {
     e.preventDefault();
     const text = $("pa-text").value.trim(); if (!text) return;
-    await F.addDoc(F.collection(db, "actions"), { text: t.code + " · " + text, owner: "", due: t.fixed ? null : F.Timestamp.fromDate(new Date(t.lf * 864e5 + 12 * 3600e3)), done: false,
+    await F.addDoc(F.collection(db, "actions"), { text: t.code + " · " + text, owner: "", status: "todo", comments: [], due: t.fixed ? null : F.Timestamp.fromDate(new Date(t.lf * 864e5 + 12 * 3600e3)), done: false,
       createdBy: user.email, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp() });
   };
   $("pt-done").onclick = () => F.updateDoc(F.doc(db, "gantt", t.id || t.code), { done: !t.done, updatedBy: user.email, updatedAt: F.serverTimestamp() });
