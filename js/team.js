@@ -409,6 +409,7 @@ function actionItem(a) {
       '<div class="action-edit" id="ae-' + a.id + '"' + (open ? '' : ' hidden') + '>' +
         '<div class="action-row"><div><label class="field" for="ao-' + a.id + '">Owner</label><input class="input" id="ao-' + a.id + '" data-owner="' + a.id + '" maxlength="60" list="owners" value="' + esc(a.owner || "") + '"></div>' +
         '<div><label class="field" for="ad-' + a.id + '">Due</label><input class="input" id="ad-' + a.id + '" type="date" data-due="' + a.id + '" value="' + dueIso + '"></div></div>' +
+        '<p class="field-hint">A new date is saved when you tap away from the box (or press Enter).</p>' +
         '<h4 class="comments-h">Comments</h4>' +
         (comments.length ? '<ul class="comment-list">' + comments.map((c) => '<li><span>' + esc(c.text) + '</span><small>' + esc(c.name || c.by || "") + (c.at ? ' · ' + fmtDate(c.at) : '') + '</small></li>').join("") + '</ul>' : '<p class="muted">No comments yet.</p>') +
         '<form class="comment-add" data-comment-form="' + a.id + '"><input class="input" data-comment-input="' + a.id + '" maxlength="500" placeholder="Add a comment or update…" aria-label="Comment"><button type="submit" class="btn alt small">Add</button></form>' +
@@ -429,7 +430,20 @@ function wireActions(root) {
     if (open) openEdits.add(id); else openEdits.delete(id);
   });
   root.querySelectorAll("[data-status]").forEach((s) => s.onchange = () => upd(s.dataset.status, { status: s.value, done: s.value === "done" }));
-  root.querySelectorAll("[data-due]").forEach((d) => d.onchange = () => upd(d.dataset.due, { due: d.value ? F.Timestamp.fromDate(new Date(d.value + "T12:00")) : null }));
+  // The due date is only saved once you've finished with it (you leave the box, or press Enter) –
+  // not while you're still changing the day, month or year – so the action doesn't jump away mid-edit
+  root.querySelectorAll("[data-due]").forEach((d) => {
+    d.dataset.orig = d.value;
+    const save = () => {
+      if (d.value === d.dataset.orig) return;
+      if (d.value && !/^\d{4}-\d{2}-\d{2}$/.test(d.value)) return;
+      d.dataset.orig = d.value;
+      upd(d.dataset.due, { due: d.value ? F.Timestamp.fromDate(new Date(d.value + "T12:00")) : null });
+    };
+    d.onchange = null;
+    d.onblur = save;
+    d.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); d.blur(); } };
+  });
   root.querySelectorAll("[data-owner]").forEach((o) => o.onchange = () => upd(o.dataset.owner, { owner: o.value.trim() }));
   root.querySelectorAll("[data-comment-form]").forEach((f) => f.onsubmit = async (e) => {
     e.preventDefault();
