@@ -451,6 +451,7 @@ function showTools() {
       t("facts.html", "📌", "Key facts", "Date, times, venue, charities, entry and raffle prices – from the key assumptions register") +
       t("news.html", "📣", "Post news and alerts", "Write, schedule and edit news; urgent alerts on the day") +
       t("raffle.html", "🎁", "Raffle", "Prizes, tickets sold, the draw and the raffle record") +
+      t("sponsors.html", "🤝", "Sponsors", "Track sponsors from first contact to paid; logos, fields and offers in the app") +
       t("photos.html", "📷", "Approve photos", "Check visitors' photos before they appear") +
       t("https://vinnie89-wq.github.io/silage-day-visitor/map.html?preview=1", "⏱️", "Preview the show day", "The visitor app with a time slider – try it at 14:40") +
       t("https://vinnie89-wq.github.io/silage-day-visitor/", "📱", "Open the visitor app", "As visitors see it") +
