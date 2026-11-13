@@ -1,0 +1,49 @@
+/* Team hub – extra styles on top of ../css/style.css */
+[hidden] { display: none !important; } /* make sure hidden buttons stay hidden */
+.team-app .site-header .header-row { position: relative; }
+.hb-signout { margin-left: auto; border: 1px solid var(--line); background: #fff; color: var(--green); border-radius: 8px; padding: 6px 10px; font: 700 0.8125rem var(--font); cursor: pointer; }
+#hub { padding-bottom: 12px; }
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.dash-tile { display: flex; flex-direction: column; padding: 10px 12px; border-radius: 12px; background: var(--light); color: var(--ink); text-decoration: none; }
+.dash-tile b { font: 800 1.75rem var(--head); color: var(--green); line-height: 1.1; }
+.dash-tile span { font-size: 0.8125rem; color: var(--muted); }
+.dash-tile.warn { background: #fff0d6; }
+.dash-tile.warn b { color: #8a5300; }
+.meet-when { margin: 0 0 10px; }
+.meet-links { display: grid; gap: 8px; }
+.meet-links .btn { margin: 0; }
+.meet-notes { background: var(--light); border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 0.9375rem; }
+.next-meeting { border: 2px solid var(--green); }
+.next-meeting .btn.small { margin-top: 10px; }
+.action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.add-action .btn { margin-top: 12px; }
+.action-list { list-style: none; margin: 0 16px 16px; padding: 0; display: grid; gap: 8px; }
+.action { display: flex; gap: 10px; align-items: flex-start; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 10px 10px 12px; }
+.action input { width: 26px; height: 26px; flex: none; margin: 2px 0 0; accent-color: var(--green); }
+.action label { flex: 1; cursor: pointer; }
+.action-text { display: block; font-weight: 600; }
+.action-meta { display: block; font-size: 0.8125rem; color: var(--muted); }
+.action.done .action-text { text-decoration: line-through; color: var(--muted); }
+.action.overdue { border-color: #e08a00; background: #fff8ea; }
+.action.overdue .action-meta { color: #8a5300; font-weight: 700; }
+.key { margin: 0 16px 10px; font-size: 0.8125rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.badge { flex: none; font-size: 0.75rem; font-weight: 700; border-radius: 6px; padding: 2px 8px; }
+.badge.open { background: #e5f4e4; color: #1b5e20; }
+.badge.sign, .badge.invite { background: #fff1cc; color: #7a5200; }
+.doc-list { list-style: none; margin: 0 16px 8px; padding: 0; display: grid; gap: 8px; }
+.doc-list a { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; text-decoration: none; color: var(--ink); }
+.doc-list a:hover, .doc-list a:focus-visible { border-color: var(--green); }
+.doc-list b { display: block; }
+.doc-list small { display: block; color: var(--muted); font-size: 0.8125rem; }
+.doc-actions { display: grid; gap: 8px; margin-top: 12px; }
+.doc-actions .btn + .btn { margin-top: 0; }
+.form-card .btn + .btn { margin-top: 8px; }
+@media (min-width: 760px) and (min-height: 501px) {
+  .team-app main { display: block; }
+  .meet-links { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .doc-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.team-app .header-date { min-width: 0; flex: 1; }
+#who-short { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; font-family: var(--font); font-weight: 600; font-size: 0.75rem; letter-spacing: 0; color: var(--muted); }
+.hb-signout { flex: none; }
+.back-hub { flex: none; font-weight: 700; color: var(--green); text-decoration: none; font-size: 0.875rem; order: 3; margin-left: auto; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>News – Pembrokeshire Silage Day (organisers)</title>
+  <link rel="icon" href="images/logo.png">
+  <link rel="stylesheet" href="css/style.css?v=1">
+  <link rel="stylesheet" href="css/team.css?v=1">
+  <!--
+    ORGANISERS ONLY. Part of the Team hub (separate from the visitor app).
+    Writes posts to Firebase "news" – the same place the organiser
+    app will use later, with the same fields (see js/news.js).
+    Only the organisers' Google accounts can post (firebase/firestore.rules).
+  -->
+</head>
+<body>
+<div class="app approve-page">
+  <header class="site-header">
+    <div class="header-row">
+      <img class="header-logo" src="images/logo.png" alt="Pembrokeshire Silage Day" width="116" height="58">
+      <a class="back-hub" href="index.html">← Team hub</a>
+      <p class="header-date">Organisers<br><span>News and alerts</span></p>
+    </div>
+  </header>
+  <main>
+    <h1 class="page-title">News and alerts</h1>
+    <p class="page-intro">Write a post in English and Welsh. Publish it now or schedule it. Tick <b>Urgent</b> for on-the-day alerts – they pop up as a banner on every page for visitors who have the app open.</p>
+
+    <section class="card" id="signin-card">
+      <p id="who">Sign in with your organiser Google account.</p>
+      <button type="button" class="btn" id="signin">Sign in with Google</button>
+      <button type="button" class="btn alt" id="signout" hidden>Sign out</button>
+    </section>
+    <p class="map-message" id="msg" hidden></p>
+
+    <form class="card form-card" id="post-form" hidden>
+      <h2 id="form-h">New post</h2>
+      <label class="field" for="titleEn">Headline – English</label>
+      <input class="input" id="titleEn" maxlength="120">
+      <label class="field" for="titleCy">Headline – Cymraeg</label>
+      <input class="input" id="titleCy" maxlength="120">
+      <label class="field" for="bodyEn">Text – English</label>
+      <textarea class="input" id="bodyEn" rows="4" maxlength="2000"></textarea>
+      <label class="field" for="bodyCy">Text – Cymraeg</label>
+      <textarea class="input" id="bodyCy" rows="4" maxlength="2000"></textarea>
+      <p class="field-hint">Leave the Welsh empty to show the English to everyone (or the other way round) – but please add both where you can.</p>
+
+      <label class="check-row"><input type="checkbox" id="urgent"><span><b>Urgent alert</b> – shows as a banner on every page for 12 hours (e.g. "Forage harvesting running 15 minutes late")</span></label>
+
+      <label class="field" for="publishAt">Publish</label>
+      <p class="field-hint">Leave empty to publish now, or pick a date and time to schedule it.</p>
+      <input class="input" id="publishAt" type="datetime-local">
+      <label class="field" for="hideAt">Hide after (optional)</label>
+      <p class="field-hint">For posts that go out of date, e.g. a delay notice.</p>
+      <input class="input" id="hideAt" type="datetime-local">
+
+      <p class="form-error" id="form-error" role="alert" hidden></p>
+      <button type="submit" class="btn" id="save">Publish</button>
+      <button type="button" class="btn alt" id="cancel-edit" hidden>Cancel editing</button>
+    </form>
+
+    <div id="posts"></div>
+  </main>
+</div>
+<script src="js/firebase-config.js?v=1"></script>
+<script src="js/firebase.js?v=1"></script>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const msg = (text) => { $("msg").hidden = !text; $("msg").textContent = text || ""; };
+const esc = (s) => String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let editingId = null;
+let posts = [];
+
+if (!firebaseConfigured()) {
+  msg("Firebase isn't set up yet – fill in js/firebase-config.js first (see README).");
+  $("signin").disabled = true;
+} else {
+  const { auth, db, A, F } = await getFirebase();
+
+  $("signin").onclick = () => A.signInWithPopup(auth, new A.GoogleAuthProvider()).catch((e) => msg("Sign-in didn't work: " + e.message));
+  $("signout").onclick = () => A.signOut(auth);
+
+  let stopListening = null;
+  A.onAuthStateChanged(auth, (user) => {
+    const organiser = user && !user.isAnonymous;
+    $("signin").hidden = !!organiser;
+    $("signout").hidden = !organiser;
+    $("post-form").hidden = !organiser;
+    $("who").textContent = organiser ? "Signed in as " + user.email : "Sign in with your organiser Google account.";
+    if (stopListening) { stopListening(); stopListening = null; }
+    $("posts").innerHTML = "";
+    if (organiser) {
+      stopListening = F.onSnapshot(F.query(F.collection(db, "news"), F.orderBy("publishAt", "desc"), F.limit(100)), (snap) => {
+        posts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        drawPosts();
+      }, (e) => msg("Couldn't load posts: " + e.message));
+    }
+  });
+
+  // datetime-local <-> Date
+  const toInput = (ts) => { if (!ts) return ""; const d = ts.toDate(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  const fromInput = (v) => v ? new Date(v) : null;
+  const fmt = (ts) => ts ? ts.toDate().toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+
+  function status(p) {
+    const now = Date.now();
+    if (p.hideAt && p.hideAt.toMillis() <= now) return ["Expired", "expired"];
+    if (p.publishAt && p.publishAt.toMillis() > now) return ["Scheduled", "scheduled"];
+    return ["Live", "live"];
+  }
+
+  function drawPosts() {
+    const groups = { scheduled: [], live: [], expired: [] };
+    posts.forEach((p) => groups[status(p)[1]].push(p));
+    groups.scheduled.reverse(); // soonest first
+    const section = (title, list) => list.length ? '<h2 class="admin-h">' + title + ' (' + list.length + ')</h2>' + list.map(card).join("") : "";
+    $("posts").innerHTML = section("Scheduled", groups.scheduled) + section("Live", groups.live) + section("Expired", groups.expired) ||
+      '<section class="card"><p>No posts yet.</p></section>';
+    $("posts").querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => startEdit(b.dataset.edit));
+    $("posts").querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => {
+      if (!confirm("Delete this post? Visitors will stop seeing it straight away.")) return;
+      try { await F.deleteDoc(F.doc(db, "news", b.dataset.del)); } catch (e) { alert("That didn't work: " + e.message); }
+    });
+  }
+
+  function card(p) {
+    const [label, cls] = status(p);
+    return '<section class="card admin-post">' +
+      '<p class="admin-status ' + cls + '">' + label + (p.urgent ? ' · ⚠ Urgent' : '') + '</p>' +
+      '<h3>' + esc(p.titleEn || p.titleCy) + '</h3>' + (p.titleCy && p.titleEn ? '<p class="muted">' + esc(p.titleCy) + '</p>' : '') +
+      '<p class="muted">Publish: ' + fmt(p.publishAt) + (p.hideAt ? ' · Hide: ' + fmt(p.hideAt) : '') + '</p>' +
+      '<div class="approve-btns"><button type="button" class="btn alt" data-edit="' + p.id + '">Edit</button>' +
+      '<button type="button" class="btn alt" data-del="' + p.id + '">Delete</button></div>' +
+    '</section>';
+  }
+
+  function startEdit(id) {
+    const p = posts.find((x) => x.id === id);
+    editingId = id;
+    ["titleEn", "titleCy", "bodyEn", "bodyCy"].forEach((k) => $(k).value = p[k] || "");
+    $("urgent").checked = !!p.urgent;
+    $("publishAt").value = toInput(p.publishAt);
+    $("hideAt").value = toInput(p.hideAt);
+    $("form-h").textContent = "Edit post";
+    $("save").textContent = "Save changes";
+    $("cancel-edit").hidden = false;
+    $("post-form").scrollIntoView({ behavior: "smooth" });
+  }
+  function resetForm() {
+    editingId = null;
+    $("post-form").reset();
+    $("form-h").textContent = "New post";
+    $("save").textContent = "Publish";
+    $("cancel-edit").hidden = true;
+    $("form-error").hidden = true;
+  }
+  $("cancel-edit").onclick = resetForm;
+  $("publishAt").oninput = () => { $("save").textContent = editingId ? "Save changes" : ($("publishAt").value && new Date($("publishAt").value) > new Date() ? "Schedule" : "Publish"); };
+
+  $("post-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const err = (t) => { $("form-error").textContent = t; $("form-error").hidden = false; };
+    const data = {
+      titleEn: $("titleEn").value.trim(), titleCy: $("titleCy").value.trim(),
+      bodyEn: $("bodyEn").value.trim(), bodyCy: $("bodyCy").value.trim(),
+      urgent: $("urgent").checked
+    };
+    if (!data.titleEn && !data.titleCy) return err("Please write a headline (English, Welsh or both).");
+    const pub = fromInput($("publishAt").value), hide = fromInput($("hideAt").value);
+    if (hide && hide <= (pub || new Date())) return err("'Hide after' must be after the publish time.");
+    data.publishAt = pub ? F.Timestamp.fromDate(pub) : F.serverTimestamp();
+    data.hideAt = hide ? F.Timestamp.fromDate(hide) : null;
+    data.author = auth.currentUser.email;
+    data.updatedAt = F.serverTimestamp();
+    $("save").disabled = true;
+    try {
+      if (editingId) {
+        await F.updateDoc(F.doc(db, "news", editingId), data);
+      } else {
+        data.createdAt = F.serverTimestamp();
+        await F.addDoc(F.collection(db, "news"), data);
+      }
+      resetForm();
+      msg(pub && pub > new Date() ? "Scheduled. ✓" : "Published. ✓");
+    } catch (e) {
+      err(e.code === "permission-denied" ? "This Google account isn't on the organisers' list (firebase/firestore.rules)." : "That didn't save: " + e.message);
+    }
+    $("save").disabled = false;
+  };
+  setInterval(() => posts.length && drawPosts(), 30000); // move posts between Scheduled / Live / Expired as time passes
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Approve photos – Pembrokeshire Silage Day (organisers)</title>
+  <link rel="icon" href="images/logo.png">
+  <link rel="stylesheet" href="css/style.css?v=1">
+  <!--
+    ORGANISERS ONLY. Part of the Team hub (separate from the visitor app).
+    Even if someone finds this page, they can't see or approve
+    anything: the security rules (firebase/firestore.rules) only
+    let the organisers' Google accounts in.
+  -->
+</head>
+<body>
+<div class="app approve-page">
+  <header class="site-header">
+    <div class="header-row">
+      <img class="header-logo" src="images/logo.png" alt="Pembrokeshire Silage Day" width="116" height="58">
+      <a class="back-hub" href="index.html">← Team hub</a>
+      <p class="header-date">Organisers<br><span>Photo approval</span></p>
+    </div>
+  </header>
+  <main>
+    <h1 class="page-title">Approve photos</h1>
+    <p class="page-intro">Photos visitors have sent in. Approve the good ones to show them in the app; reject anything unsuitable (it's deleted). Check for close-ups of other people's children, faces of anyone who might not want to be shown, and anything offensive.</p>
+    <section class="card" id="signin-card">
+      <p id="who">Sign in with your organiser Google account.</p>
+      <button type="button" class="btn" id="signin">Sign in with Google</button>
+      <button type="button" class="btn alt" id="signout" hidden>Sign out</button>
+    </section>
+    <p class="map-message" id="msg" hidden></p>
+    <div id="queue"></div>
+  </main>
+</div>
+<script src="js/firebase-config.js?v=1"></script>
+<script src="js/firebase.js?v=1"></script>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const msg = (text) => { $("msg").hidden = !text; $("msg").textContent = text || ""; };
+
+if (!firebaseConfigured()) {
+  msg("Firebase isn't set up yet – fill in js/firebase-config.js first (see README).");
+  $("signin").disabled = true;
+} else {
+  // The Team hub's own connection – shares the sign-in with the hub, never with the visitor app
+  const { auth, db, A, F } = await getFirebase();
+
+  $("signin").onclick = () => A.signInWithPopup(auth, new A.GoogleAuthProvider()).catch((e) => msg("Sign-in didn't work: " + e.message));
+  $("signout").onclick = () => A.signOut(auth);
+
+  A.onAuthStateChanged(auth, (user) => {
+    const organiser = user && !user.isAnonymous;
+    $("signin").hidden = !!organiser;
+    $("signout").hidden = !organiser;
+    $("who").textContent = organiser ? "Signed in as " + user.email : "Sign in with your organiser Google account.";
+    $("queue").innerHTML = "";
+    if (organiser) loadQueue();
+  });
+
+  async function loadQueue() {
+    msg("Loading…");
+    try {
+      const snap = await F.getDocs(F.query(F.collection(db, "pending"), F.orderBy("createdAt", "asc"), F.limit(50)));
+      msg(snap.empty ? "Nothing waiting – all caught up. 👍" : snap.size + " photo(s) waiting" + (snap.size === 50 ? " (showing the first 50)" : "") + ".");
+      snap.forEach((d) => $("queue").appendChild(card(d)));
+    } catch (e) {
+      msg(e.code === "permission-denied"
+        ? "This Google account isn't on the organisers' list. Add its email to firebase/firestore.rules and publish the rules again."
+        : "Couldn't load the photos: " + e.message);
+    }
+  }
+
+  function card(d) {
+    const p = d.data();
+    const el = document.createElement("section");
+    el.className = "card approve-card";
+    const when = p.createdAt ? p.createdAt.toDate().toLocaleString("en-GB") : "";
+    el.innerHTML = '<img alt="Photo sent by a visitor" src="' + p.thumb + '">' +
+      '<p class="small">' + when + '</p>' +
+      '<div class="approve-btns"><button type="button" class="btn" data-a="yes">✓ Approve</button>' +
+      '<button type="button" class="btn alt" data-a="no">✕ Reject</button>' +
+      '<button type="button" class="link-btn" data-a="big">See it bigger</button></div>';
+    el.querySelector('[data-a="big"]').onclick = async () => {
+      const full = await F.getDoc(F.doc(db, "full", d.id));
+      if (full.exists()) el.querySelector("img").src = full.data().image;
+    };
+    el.querySelector('[data-a="yes"]').onclick = () => decide(el, d, true);
+    el.querySelector('[data-a="no"]').onclick = () => decide(el, d, false);
+    return el;
+  }
+
+  async function decide(el, d, approve) {
+    el.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    try {
+      const batch = F.writeBatch(db);
+      if (approve) batch.set(F.doc(db, "gallery", d.id), { thumb: d.data().thumb, createdAt: d.data().createdAt || F.serverTimestamp(), approvedAt: F.serverTimestamp() });
+      else batch.delete(F.doc(db, "full", d.id));
+      batch.delete(F.doc(db, "pending", d.id));
+      await batch.commit();
+      el.remove();
+    } catch (e) {
+      el.querySelectorAll("button").forEach((b) => (b.disabled = false));
+      alert("That didn't work: " + e.message);
+    }
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="PSD Team">
+  <meta name="theme-color" content="#2c4a1c">
+  <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="images/logo.png">
+  <title>Team hub – Pembrokeshire Silage Day 2027</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=1">
+  <link rel="stylesheet" href="css/team.css?v=1">
+  <!--
+    TEAM HUB – for the organising team only. A separate app from the
+    visitor app (github.com/vinnie89-wq/silage-day-visitor).
+    Everything on it (dashboard, meetings, actions, document links) is
+    loaded from Firebase AFTER signing in, and the security rules only
+    let organisers' Google accounts read it. This file and team.js hold
+    no private information, so it's fine that the code is public.
+  -->
+</head>
+<body>
+<div class="app team-app">
+  <header class="site-header">
+    <div class="header-row">
+      <img class="header-logo" src="images/logo.png" alt="Pembrokeshire Silage Day" width="116" height="58">
+      <p class="header-date">Team hub<br><span id="who-short">Organisers only</span></p>
+      <button type="button" class="hb-signout" id="signout" hidden>Sign out</button>
+    </div>
+  </header>
+
+  <main id="hub" aria-live="polite">
+    <section class="card" id="signin-card">
+      <h1 class="page-title">Team hub</h1>
+      <p>For the Pembrokeshire Silage Day organising team. Sign in with your organiser Google account.</p>
+      <button type="button" class="btn" id="signin">Sign in with Google</button>
+      <p class="map-message" id="msg" hidden></p>
+    </section>
+  </main>
+
+  <nav class="bottom-nav team-nav" id="team-nav" aria-label="Team hub" hidden>
+    <ul>
+      <li><a href="#dashboard" data-tab="dashboard"><span class="icon" aria-hidden="true">📊</span><span class="label">Dashboard</span></a></li>
+      <li><a href="#meetings" data-tab="meetings"><span class="icon" aria-hidden="true">🗓️</span><span class="label">Meetings</span></a></li>
+      <li><a href="#actions" data-tab="actions"><span class="icon" aria-hidden="true">✅</span><span class="label">Actions</span></a></li>
+      <li><a href="#docs" data-tab="docs"><span class="icon" aria-hidden="true">📁</span><span class="label">Documents</span></a></li>
+      <li><a href="#tools" data-tab="tools"><span class="icon" aria-hidden="true">🧰</span><span class="label">Tools</span></a></li>
+    </ul>
+  </nav>
+</div>
+<script src="js/firebase-config.js?v=1"></script>
+<script src="js/firebase.js?v=1"></script>
+<script type="module" src="js/team.js?v=1"></script>
+</body>
+</html>

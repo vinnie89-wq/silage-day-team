@@ -1,0 +1,957 @@
+/* =========================================================
+   Pembrokeshire Silage Day – visitor app styles
+   One stylesheet shared by every page.
+   ========================================================= */
+
+/* ---------- 1. Colours and fonts ----------
+   These "custom properties" (variables) hold the colours and
+   fonts in one place. Change a value here and it changes
+   everywhere it is used. They match the design prototype. */
+:root {
+  --green: #2c4a1c;      /* dark farm green – headings, buttons */
+  --green2: #3f6b25;     /* mid green */
+  --grass: #7fa83a;      /* bright grass green – small accents */
+  --light: #f1edd8;      /* pale straw – notes, soft buttons */
+  --paper: #fbf8ee;      /* page background */
+  --cream: #f6efcf;      /* header background */
+  --brown: #3a2614;      /* header underline, dark text accents */
+  --ink: #2a1e12;        /* main text colour */
+  --muted: #6b6250;      /* quieter text */
+  --line: #e2dcc4;       /* thin borders */
+  --yellow: #f5c518;     /* highlights, rule numbers */
+  --red: #b3261e;        /* emergency / lost child */
+  --live: #19a34a;       /* "on now" in the timetable */
+  --amber: #e08a00;      /* "starting soon" */
+  --edge: #857c69;       /* outlines of buttons and switches (3:1 contrast) */
+  --focus: #1a5fb4;      /* keyboard focus outline */
+  --alert-bg: #fff4c2;   /* pale yellow: draft notes, placeholders */
+  --alert-soft: #fffbe6; /* paler yellow: the safety tick-box row */
+
+  --font: "Barlow", system-ui, sans-serif;
+  --head: "Barlow Condensed", "Barlow", sans-serif;
+}
+
+/* ---------- 1b. Comfort settings ----------
+   comfort.js puts these classes on the <html> element, straight
+   away in the <head>, so the page is drawn the right way first
+   time with no flicker. */
+
+/* Calm visuals – softer, muted colours, like the prototype's calm mode.
+   Bright red and yellow are swapped for gentle versions. */
+html.calm {
+  --red: #8a4a46;
+  --amber: #b98a3e;
+  --live: #4f8a5f;
+  --yellow: #e8d48a;
+  --grass: #93a77a;
+  --alert-bg: #f3eedb;
+  --alert-soft: #f7f3e6;
+}
+/* …and nothing moves */
+html.calm *, html.calm *::before, html.calm *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+html.calm .map-box img,
+html.calm .places .dot { filter: saturate(0.55) brightness(1.05); }
+html.calm .pill.live { background: #e3ece5; color: #34553c; }
+html.calm .pill.soon { background: #f3ecdc; color: #63502a; }
+
+/* Larger text – every text size in this file is in "rem", which is
+   a share of this one root size. Raise it and all text grows
+   together, while widths stay the same so it still fits a phone. */
+html { font-size: 100%; }              /* Normal: 16px */
+html.text-large { font-size: 112.5%; } /* Large: 18px */
+html.text-xl { font-size: 125%; }      /* Extra large: 20px */
+
+/* Easy-read font – Atkinson Hyperlegible, with more space between
+   letters, words and lines (like the prototype's easy-read). */
+html.easy-read {
+  --font: "Atkinson Hyperlegible", Verdana, sans-serif;
+  --head: "Atkinson Hyperlegible", Verdana, sans-serif;
+}
+html.easy-read body { letter-spacing: 0.03em; word-spacing: 0.08em; line-height: 1.7; }
+html.easy-read h1, html.easy-read h2, html.easy-read h3 { letter-spacing: 0.01em; line-height: 1.3; }
+html.easy-read .header-date { letter-spacing: 0.02em; }
+
+/* ---------- 2. Basics ---------- */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  line-height: 1.45;
+}
+
+/* Buttons don't pick up the page font unless told to */
+button, input { font-family: inherit; }
+
+h1, h2, h3 { font-family: var(--head); line-height: 1.1; }
+
+a { color: var(--green); }
+
+img { max-width: 100%; }
+
+/* Hide things visually but keep them for screen readers */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* A clear outline when someone moves around with the keyboard */
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* The whole app sits in a phone-width column, centred on bigger screens.
+   The bottom padding stops the fixed nav bar covering the last bit of content. */
+.app {
+  max-width: 560px;
+  margin: 0 auto;
+  min-height: 100vh;
+  min-height: 100dvh; /* "dynamic" height: follows Safari's toolbar as it shows and hides */
+  background: var(--paper);
+  padding-bottom: calc(6rem + env(safe-area-inset-bottom)); /* grows with the text size, like the nav bar */
+}
+
+/* ---------- 3. Header (logo + date) ---------- */
+.site-header {
+  background: var(--cream);
+  border-bottom: 3px solid var(--brown);
+  padding: 8px 16px 10px;
+  position: sticky;      /* stays at the top as you scroll */
+  top: 0;
+  z-index: 20;
+}
+.header-row { display: flex; align-items: center; gap: 10px; }
+.header-logo { height: 58px; width: auto; display: block; }
+.header-date {
+  font: 700 0.8125rem/1.25 var(--head);
+  color: var(--green);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.header-date span { color: var(--brown); }
+
+/* Comfort button and language switch, stacked on the right of the header */
+.header-buttons {
+  margin-left: auto;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+}
+.comfort-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: var(--green);
+  color: var(--cream);
+  font: 700 0.8125rem var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* Turns blue (like the prototype) when any comfort setting is on */
+.comfort-btn.is-on { background: #2a6fb0; color: #fff; }
+
+/* Safety button – white with green text, under the Comfort button (as in the prototype) */
+.safety-btn {
+  border: 1px solid var(--edge);
+  background: #fff;
+  color: var(--green);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: 700 0.8125rem var(--font);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.safety-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* Language chips in the Comfort panel */
+.lang-chips { display: flex; gap: 8px; }
+.chip {
+  border: 1px solid var(--edge);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font: 600 0.9375rem var(--font);
+  cursor: pointer;
+}
+.chip.on { background: var(--green); border-color: var(--green); color: #fff; }
+.chip:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.note.sunflower { margin-top: 14px; }
+
+/* Small language switch */
+.lang-switch {
+  margin-left: auto;
+  border: 1px solid var(--edge);
+  background: #fff;
+  color: var(--green);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: 700 0.8125rem var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* "Draft translation" note – only has words in Welsh, so it hides itself in English */
+.draft-note {
+  margin: 0;
+  padding: 6px 16px;
+  background: var(--alert-bg);
+  color: var(--brown);
+  font-size: 0.7812rem;
+  border-bottom: 1px solid var(--line);
+}
+.draft-note span { color: var(--muted); }
+.draft-note:empty { display: none; }
+
+/* ---------- 4. Page content ---------- */
+main { padding: 4px 0 8px; }
+
+.page-title {
+  font-size: 1.75rem;
+  margin: 14px 16px 4px;
+  color: var(--ink);
+}
+.page-intro { margin: 0 16px 14px; color: var(--muted); }
+
+/* White rounded boxes used for most content */
+.card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  margin: 0 16px 14px;
+}
+.card h2 { margin: 0 0 8px; font-size: 1.375rem; color: var(--green); }
+.card p { margin: 0 0 8px; }
+.card p:last-child { margin-bottom: 0; }
+
+/* Small pale information box */
+.note {
+  font-size: 0.8438rem;
+  color: var(--muted);
+  background: var(--light);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 10px 0 0;
+}
+
+/* Text still waiting for the organisers to confirm.
+   Search the HTML for "placeholder" to find every one. */
+.placeholder {
+  background: var(--alert-bg);
+  border-bottom: 2px dashed var(--amber);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+/* Big tappable buttons (links styled as buttons) */
+.btn {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: var(--green);
+  color: #fff;
+  font: 700 0.9375rem var(--font);
+  padding: 13px;
+  margin-top: 10px;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn.alt { background: var(--light); color: var(--green); }
+.btn.red { background: var(--red); }
+
+/* ---------- 5. Home page ---------- */
+.countdown {
+  margin: 14px 16px;
+  background: var(--green);
+  color: var(--cream);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.countdown b {
+  font: 800 2.875rem/1 var(--head);
+  color: var(--yellow);
+  min-width: 2ch;
+  flex: none; /* never squash the number into the words beside it */
+  text-align: center;
+}
+
+/* Icon + heading + text rows ("What to expect") */
+.expect { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.expect:last-child { border-bottom: 0; padding-bottom: 0; }
+.expect .icon {
+  flex: none;
+  width: 42px; height: 42px;
+  border-radius: 12px;
+  background: var(--light);
+  display: grid; place-items: center;
+  font-size: 1.375rem;
+}
+.expect b { display: block; }
+
+/* Grid of shortcut tiles on the home page */
+.tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 16px 14px;
+}
+.tile {
+  display: block;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.tile .icon { font-size: 1.625rem; display: block; }
+.tile b { display: block; font: 700 1.1875rem var(--head); color: var(--green); margin-top: 4px; }
+.tile small { color: var(--muted); font-size: 0.8125rem; }
+
+/* Simple two-column "label: value" facts list */
+.facts { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; }
+.facts dt { font-weight: 700; color: var(--muted); }
+.facts dd { margin: 0; }
+
+/* ---------- 6. Timetable ---------- */
+.timetable { list-style: none; margin: 0 16px 14px; padding: 0;
+  background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.slot { display: flex; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.slot:last-child { border-bottom: 0; }
+.slot .time { min-width: 58px; font: 700 1.25rem var(--head); color: var(--green); }
+.slot .what { flex: 1; }
+.slot .title { font-weight: 700; }
+.slot .where { font-size: 0.8438rem; color: var(--muted); margin-top: 2px; }
+.slot.key { background: var(--light); }
+
+/* Status labels added by app.js on the day itself */
+.pill {
+  display: inline-block;
+  font-size: 0.6875rem; font-weight: 700;
+  padding: 2px 8px; border-radius: 6px;
+  text-transform: uppercase; letter-spacing: 0.3px;
+  margin-left: 6px; vertical-align: 2px;
+}
+.pill.live { background: #dcf5e3; color: #11713a; }
+.pill.soon { background: #fff0d6; color: #8a5300; }
+/* Finished items are greyed with the muted colour (not see-through),
+   so the text still passes the contrast check */
+.slot.done, .slot.done .time { color: var(--muted); }
+.slot.is-live { box-shadow: inset 4px 0 0 var(--live); }
+
+/* ---------- 7. Safety ---------- */
+/* Numbered rules with yellow number circles */
+.rules { counter-reset: rule; padding: 0; margin: 0; list-style: none; }
+.rules li { position: relative; padding: 10px 0 10px 2.4em; border-bottom: 1px solid var(--line); }
+.rules li:last-child { border-bottom: 0; }
+.rules li::before {
+  counter-increment: rule;
+  content: counter(rule);
+  position: absolute; left: 0; top: 8px;
+  width: 1.875em; height: 1.875em; border-radius: 50%; /* "em" so the circle grows with the text */
+  background: var(--yellow);
+  color: var(--ink);
+  font: 800 1rem var(--head);
+  display: grid; place-items: center;
+}
+
+.alert-card { border: 2px solid var(--red); }
+.alert-card h2 { color: var(--red); }
+.steps { margin: 0; padding-left: 22px; }
+.steps li { padding: 4px 0; }
+
+/* ---------- 8. Site map ---------- */
+.map-tools { display: flex; gap: 8px; align-items: center; padding: 0 16px 10px; }
+.map-tools span { color: var(--muted); font-size: 0.8125rem; margin-right: auto; }
+.map-tools button {
+  width: 40px; height: 40px;
+  border-radius: 10px; border: 1px solid var(--edge);
+  background: #fff; color: var(--green);
+  font: 700 1.375rem var(--font); cursor: pointer;
+}
+/* The map sits in a scrollable box so you can zoom in and drag around */
+.map-box {
+  margin: 0 16px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f7f5ef;
+  overflow: auto;
+  height: 70vh;
+  height: 70dvh;
+  -webkit-overflow-scrolling: touch;
+}
+.map-box img { display: block; width: 100%; max-width: none; height: auto; }
+.map-inner { max-width: none; }
+
+.places { list-style: none; margin: 0; padding: 0; }
+.places li { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.places li:last-child { border-bottom: 0; }
+.places .dot {
+  flex: none; width: 32px; height: 32px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 1rem; color: #fff;
+}
+
+/* ---------- 9. Bottom navigation ---------- */
+.bottom-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  background: #fff;
+  border-top: 1px solid var(--line);
+  /* extra space on phones with a "home bar" at the bottom */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.bottom-nav ul {
+  display: flex;
+  max-width: 560px;
+  margin: 0 auto; padding: 0;
+  list-style: none;
+}
+.bottom-nav li { flex: 1; }
+.bottom-nav a {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 2px 12px;
+  color: var(--muted);
+  font-size: 0.7188rem; font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+}
+.bottom-nav .icon { font-size: 1.3125rem; line-height: 1.1; }
+/* The page you are on is shown in green (set with aria-current="page") */
+.bottom-nav a[aria-current="page"] { color: var(--green); }
+.bottom-nav a[aria-current="page"] .label { border-bottom: 2px solid var(--green); }
+
+/* ---------- 10. Welcome / language choice screen ---------- */
+/* Until the language is chosen AND the safety rules are accepted,
+   hide the page itself so the pop-ups really come first.
+   first-visit.js adds and removes the "gated" class. */
+.gated .app { visibility: hidden; }
+.gated, .gated body { overflow: hidden; } /* stop the page behind scrolling */
+
+.welcome-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--cream);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  overflow-y: auto;
+}
+.welcome-box { width: 100%; max-width: 360px; text-align: center; }
+.welcome-box img { width: 80%; height: auto; }
+.welcome-box h1 { font-size: 2.125rem; color: var(--green); margin: 12px 0 6px; }
+.welcome-box p { margin: 0 0 18px; font-size: 1.0625rem; }
+.welcome-box p span[lang="en"] { color: var(--muted); }
+.welcome-box .btn { font-size: 1.1875rem; padding: 16px; margin-top: 12px; }
+
+/* ---------- 11. Safety rules pop-up ----------
+   Built to be read outdoors in bright light: big text, black on
+   white, thick borders and a large tick box. */
+.safety-screen {
+  position: fixed;
+  inset: 0;              /* covers the whole screen */
+  z-index: 100;
+  background: #fff;
+  color: #111;
+  overflow-y: auto;      /* the rules scroll inside the pop-up */
+  -webkit-overflow-scrolling: touch;
+}
+.safety-box {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 12px 16px calc(28px + env(safe-area-inset-bottom));
+  font-size: 1.1875rem;
+  line-height: 1.5;
+}
+.safety-top { display: flex; align-items: center; }
+.safety-icon { font-size: 2.125rem; }
+.safety-box .lang-switch { font-size: 0.9375rem; padding: 8px 12px; border: 2px solid #111; color: #111; }
+.safety-box .draft-note { margin: 10px 0 0; border-radius: 8px; }
+.safety-box h1 { font-size: 2.25rem; color: #111; margin: 10px 0 6px; outline: none; }
+.safety-intro { margin: 0 0 8px; font-weight: 600; }
+.safety-changed {
+  margin: 0 0 10px; padding: 10px 12px;
+  background: var(--alert-bg); border: 2px solid #111; border-radius: 10px;
+  font-weight: 700;
+}
+.safety-box .rules li { padding: 12px 0 12px 2.55em; border-bottom: 2px solid #ddd; }
+.safety-box .rules li::before { width: 1.9em; height: 1.9em; font-size: 1.1875rem; top: 10px; color: #111; border: 2px solid #111; }
+.safety-box .note { font-size: 0.9375rem; color: #333; }
+
+/* The tick box row – the whole row is tappable */
+.accept-row {
+  display: flex; gap: 14px; align-items: center;
+  margin: 20px 0 0; padding: 14px;
+  border: 3px solid #111; border-radius: 12px;
+  background: var(--alert-soft);
+  font-weight: 700; cursor: pointer;
+}
+.accept-row input { width: 34px; height: 34px; flex: none; margin: 0; accent-color: var(--green); cursor: pointer; }
+
+.accept-btn { font-size: 1.25rem; padding: 18px; margin-top: 14px; }
+/* Before the box is ticked the button is greyed out and does nothing */
+.accept-btn:disabled {
+  background: #e4e4e4; color: #444;
+  border: 2px dashed #666;
+  cursor: not-allowed;
+}
+.accept-hint { margin: 8px 0 0; text-align: center; font-size: 1rem; color: #333; }
+
+/* The safety rules on the Safety page – a little larger for outdoors */
+.rules li { font-size: 1.0938rem; }
+.accepted-note { margin: 10px 0 0; font-weight: 700; color: var(--green); }
+.accepted-note:empty { display: none; }
+
+/* ---------- 12. Pop-up panels (Comfort settings and the one-off offer) ---------- */
+/* Dark see-through layer behind a panel; tapping it closes the panel */
+.scrim { position: fixed; inset: 0; z-index: 90; background: rgba(10, 20, 10, 0.5); }
+
+/* The panel slides up from the bottom, like the prototype */
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 91;
+  max-width: 560px; max-height: 88vh; max-height: 88dvh; overflow-y: auto;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 18px 18px 0 0;
+  padding: 16px 18px calc(24px + env(safe-area-inset-bottom));
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.2);
+  animation: sheet-up 0.25s ease-out;
+}
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+.sheet h2 { font-size: 1.5625rem; margin: 0 0 4px; padding-right: 52px; outline: none; }
+.sheet h2 { padding-right: 52px; }
+.sheet-intro { margin: 0 0 4px; color: var(--muted); font-size: 0.9375rem; }
+.sheet-close {
+  position: absolute; right: 14px; top: 12px;
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--edge); background: var(--light); color: var(--ink);
+  font-size: 1.5rem; line-height: 1; cursor: pointer;
+}
+
+/* One option = title, one-line explanation, control */
+.option { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.option:last-of-type { border-bottom: 0; }
+.option-row { display: flex; align-items: center; gap: 12px; }
+.option-text { flex: 1; }
+.option-text b { display: block; font-size: 1.0625rem; }
+.option-text small { display: block; color: var(--muted); font-size: 0.875rem; line-height: 1.4; }
+.motion-note { margin: 8px 0 0; font-size: 0.875rem; color: var(--green); font-weight: 600; }
+
+/* On/off switch (a button with role="switch") */
+.switch {
+  flex: none; position: relative;
+  width: 56px; height: 32px; border-radius: 999px;
+  border: 0; background: var(--edge); cursor: pointer;
+}
+.switch::after {
+  content: ""; position: absolute; top: 4px; left: 4px;
+  width: 24px; height: 24px; border-radius: 50%; background: #fff;
+  transition: left 0.15s;
+}
+.switch[aria-checked="true"] { background: var(--green); }
+.switch[aria-checked="true"]::after { left: 28px; }
+
+/* Normal / Large / Extra large – real radio buttons, styled as big boxes */
+.size-choice { display: flex; gap: 8px; margin-top: 10px; }
+.size-choice label { flex: 1; position: relative; }
+.size-choice input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.size-choice span {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 52px; padding: 6px 4px;
+  border: 2px solid var(--edge); border-radius: 10px;
+  background: #fff; color: var(--ink);
+  font-weight: 700; text-align: center; line-height: 1.15;
+}
+.size-choice label:nth-child(2) span { font-size: 1.125rem; }
+.size-choice label:nth-child(3) span { font-size: 1.25rem; }
+.size-choice input:checked + span { background: var(--green); border-color: var(--green); color: #fff; }
+.size-choice input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* ---------- 13. Footer ---------- */
+.site-footer { font-size: 0.75rem; color: var(--muted); text-align: center; padding: 4px 16px 12px; }
+
+/* Respect people who've asked their device for less motion */
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+
+/* ---------- Map: live now, field markers and "Where am I?" ---------- */
+.live-card h2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.live-card .test-time { font: 600 0.8125rem var(--font); color: var(--muted); }
+.live-empty { margin: 0; color: var(--muted); }
+.live-list { list-style: none; margin: 0; padding: 0; }
+.live-list li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.live-list li:last-child { border-bottom: 0; }
+.live-list li > div { flex: 1; }
+.live-list b { display: block; font-size: 1.0625rem; }
+.live-list span { color: var(--muted); font-size: 0.875rem; }
+.live-next { margin: 10px 0 0; font-size: 0.9375rem; }
+.btn.small { width: auto; margin: 0; padding: 8px 12px; font-size: 0.875rem; flex: none; }
+.link-btn { border: 0; background: none; padding: 0; color: var(--green); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+
+.locate-btn {
+  border: 0; border-radius: 10px; height: 40px; padding: 0 14px;
+  background: #2a6fb0; color: #fff; font: 700 0.9375rem var(--font); cursor: pointer;
+}
+.locate-btn[aria-pressed="true"] { background: #1d5590; }
+.locate-btn:focus-visible, .field-marker:focus-visible, .link-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* The picture and its markers zoom together */
+.map-inner { position: relative; width: 100%; }
+.map-markers { position: absolute; inset: 0; }
+
+.field-marker {
+  position: absolute; transform: translate(calc(-100% - 2px), -50%); /* sits just left of the field name */
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 2px solid #fff; background: var(--green); color: #fff;
+  font: 700 0.9375rem var(--font); display: grid; place-items: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,.35); cursor: pointer; padding: 0;
+}
+.field-marker.quiet { background: #8a8270; }
+.field-marker.soon { background: #e08a00; }
+.field-marker.live { background: #c8202a; }
+.field-marker.live::before {
+  content: ""; position: absolute; inset: -8px; border-radius: 50%;
+  border: 3px solid #c8202a; animation: live-pulse 1.6s ease-out infinite;
+}
+.field-marker .badge {
+  position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+  background: #c8202a; color: #fff; border-radius: 6px; padding: 0 5px;
+  font-size: 0.625rem; letter-spacing: .5px; line-height: 1.5;
+}
+@keyframes live-pulse { from { transform: scale(.8); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
+
+/* Calm mode: softer colours and no pulsing ring */
+html.calm .field-marker.live { background: #a5524f; }
+html.calm .field-marker.live .badge { background: #a5524f; }
+html.calm .field-marker.soon { background: #b98a3e; }
+html.calm .field-marker.live::before { animation: none; opacity: .6; border-color: #a5524f; }
+
+/* The blue "you are here" dot */
+.me-dot { position: absolute; width: 0; height: 0; pointer-events: none; }
+.me-dot[hidden] { display: none; }
+.me-accuracy {
+  position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
+  border-radius: 50%; background: rgba(42,111,176,.18); border: 1px solid rgba(42,111,176,.5);
+  aspect-ratio: 1;
+}
+.me-centre {
+  position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%;
+  background: #2a6fb0; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 1px 4px rgba(0,0,0,.4);
+}
+.map-message { margin: -6px 16px 14px; padding: 8px 12px; border-radius: 10px; background: #e3eefa; color: #1d4f80; font-size: 0.9375rem; }
+.field-list { list-style: none; margin: 0; padding: 0; }
+.field-list li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.field-list li:last-child { border-bottom: 0; }
+.field-list li.done { color: var(--muted); text-decoration: line-through; }
+.field-list .time { font-weight: 700; color: var(--green); margin-right: 4px; }
+.map-tools .locate-btn { width: auto; height: 40px; font-size: 0.9375rem; border: 0; color: #fff; background: #2a6fb0; }
+.map-tools .locate-btn[aria-pressed="true"] { background: #1d5590; }
+
+
+/* ---------- Photos ---------- */
+.upload-pick {
+  display: block; position: relative; text-align: center; cursor: pointer;
+  border: 2px dashed var(--edge); border-radius: 14px; padding: 18px 12px; background: var(--light);
+}
+.upload-pick .big { display: block; font: 700 1.25rem var(--head); color: var(--green); }
+.upload-pick .small { display: block; font-size: 0.875rem; color: var(--muted); margin-top: 2px; }
+.upload-pick input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+.upload-pick:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+.chosen { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+.chosen img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; }
+.chosen p { width: 100%; margin: 4px 0 0; font-size: 0.875rem; color: var(--muted); }
+.upload-card .accept-row { margin-top: 12px; }
+.upload-status { margin: 10px 0 0; padding: 8px 12px; border-radius: 10px; background: #e3eefa; color: #1d4f80; font-size: 0.9375rem; }
+.gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.gallery .thumb { padding: 0; border: 0; background: var(--light); aspect-ratio: 1; border-radius: 6px; overflow: hidden; cursor: pointer; }
+.gallery .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gallery .thumb:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.gallery-empty { margin: 0; color: var(--muted); }
+#gallery-more { margin-top: 12px; }
+.lightbox {
+  position: fixed; inset: 0; z-index: 60; background: rgba(20,16,10,.92);
+  display: flex; align-items: center; justify-content: center; padding: 56px 12px 24px;
+}
+.lightbox[hidden] { display: none; }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+.lightbox .sheet-close { position: absolute; top: 12px; right: 12px; }
+.lightbox-loading { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; color: #eee; font-size: 0.875rem; margin: 0; }
+.lightbox-loading[hidden] { display: none; }
+
+/* Organisers' approval page */
+.approve-card img { width: 100%; border-radius: 10px; display: block; }
+.approve-card .small { color: var(--muted); font-size: 0.8125rem; margin: 6px 0; }
+.approve-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.approve-btns .btn { width: auto; flex: 1; margin: 0; }
+
+
+/* =========================================================
+   Fitting every screen
+   ========================================================= */
+
+/* iPhone: keep things clear of the notch, the rounded corners
+   and the home bar (these are 0 on phones that don't have them) */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+.site-header {
+  padding-top: calc(8px + env(safe-area-inset-top));
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
+}
+.bottom-nav { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+.lightbox {
+  padding-top: calc(56px + env(safe-area-inset-top));
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+.lightbox .sheet-close { top: calc(12px + env(safe-area-inset-top)); }
+/* Phone on its side: the map uses most of the (short) screen */
+@media (orientation: landscape) and (max-height: 500px) {
+  .map-box { height: 80vh; height: 80dvh; }
+}
+
+/* iPad and iMac: use the extra width instead of a phone-width strip
+   (not phones turned sideways – they're wide but very short) */
+@media (min-width: 760px) and (min-height: 501px) {
+  .app, .bottom-nav ul { max-width: 1080px; }
+  .site-header .header-row { max-width: 1048px; margin: 0 auto; }
+  .bottom-nav a { flex-direction: row; justify-content: center; gap: 8px; font-size: 0.875rem; padding: 12px 4px 14px; }
+  .bottom-nav .icon { font-size: 1.125rem; }
+
+  /* Cards sit side by side in two columns */
+  main {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-flow: row dense;
+    align-items: start;
+  }
+  main > .page-title, main > .page-intro, main > .visually-hidden,
+  main > .countdown, main > .tiles, main > .lightbox,
+  main > .map-tools, main > .map-box, main > .map-message { grid-column: 1 / -1; }
+  .page-intro { max-width: 70ch; }
+
+  /* Home: all the shortcut tiles in one row */
+  .tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+  /* Timetable: the list down the left, notes on the right */
+  main:has(#timetable) > .timetable { grid-column: 1; grid-row: 3 / span 3; }
+  main:has(#timetable) > div.card { grid-column: 2; grid-row: 3; }
+  main:has(#timetable) > section.card { grid-column: 2; grid-row: 4; }
+
+  /* Home: "What to expect" across the full width, in two columns */
+  main:has(.countdown) > .card:last-child { grid-column: 1 / -1; columns: 2; column-gap: 32px; }
+  main:has(.countdown) > .card:last-child h2 { column-span: all; }
+  main:has(.countdown) .expect { break-inside: avoid; }
+
+  /* Photos: more photos per row */
+  .gallery { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* Big screens: the map takes the left side, live info on the right */
+@media (min-width: 960px) and (min-height: 501px) {
+  main:has(#map-box) { grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); }
+  main:has(#map-box) > .map-tools  { grid-column: 1; grid-row: 3; }
+  main:has(#map-box) > .map-box    { grid-column: 1; grid-row: 4 / span 4; height: calc(100vh - 260px); height: calc(100dvh - 260px); min-height: 480px; }
+  main:has(#map-box) > .map-message{ grid-column: 1; grid-row: 8; }
+  main:has(#map-box) > .live-card  { grid-column: 2; grid-row: 3 / span 2; }
+  main:has(#map-box) > .field-info { grid-column: 2; grid-row: 5; }
+  main:has(#map-box) > .card:last-child { grid-column: 2; grid-row: 6; }
+  .gallery { grid-template-columns: repeat(5, 1fr); }
+}
+
+
+/* ---------- Videos ---------- */
+.hashtag-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.hashtag { flex: 1; font: 700 1.375rem var(--head); color: var(--green); background: var(--light); border-radius: 10px; padding: 8px 12px; }
+.social-links { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.social-links .chip { text-decoration: none; }
+.video-list { display: grid; gap: 14px; margin-top: 6px; }
+.video-item { margin: 0; }
+.video-item video, .video-item iframe, .video-item .yt-start {
+  display: block; width: 100%; border: 0; border-radius: 10px; background: #000;
+}
+.video-item video { max-height: 70vh; max-height: 70dvh; object-fit: contain; }
+.video-item iframe, .video-item .yt-start { aspect-ratio: 16 / 9; }
+.video-item .yt-start { position: relative; padding: 0; cursor: pointer; overflow: hidden; }
+.video-item .yt-start img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.video-item .yt-start .play {
+  position: absolute; inset: 0; margin: auto; width: 64px; height: 64px; border-radius: 50%;
+  background: rgba(0,0,0,.65); color: #fff; font-size: 1.75rem; display: grid; place-items: center;
+}
+.video-item .yt-start:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.video-item figcaption { margin-top: 6px; font-weight: 600; }
+@media (min-width: 760px) and (min-height: 501px) {
+  .video-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+
+/* ---------- Tickets ---------- */
+.tick-list { margin: 10px 0; padding-left: 22px; }
+.tick-list li { margin-bottom: 6px; }
+.muted { color: var(--muted); font-size: 0.9375rem; }
+.step-label { margin: 0 16px 10px; color: var(--muted); font-weight: 600; font-size: 0.9375rem; }
+.pad-x { padding: 0 16px 14px; }
+.pad-x .btn + .btn { margin-top: 10px; }
+
+/* Form fields: big enough to tap, clear labels */
+.form-card .field:first-of-type { margin-top: 4px; }
+.field { display: block; font-weight: 700; margin: 14px 0 4px; }
+.field-hint { margin: 0 0 6px; font-size: 0.875rem; color: var(--muted); }
+.input {
+  display: block; width: 100%; min-height: 48px; padding: 10px 12px;
+  border: 2px solid var(--edge); border-radius: 10px; background: #fff; color: var(--ink);
+  font: inherit; font-size: 1rem; /* 16px+ stops iPhones zooming in */
+}
+.input:focus { outline: 3px solid var(--focus); outline-offset: 1px; border-color: var(--green); }
+select.input { appearance: auto; }
+.signature { font-family: "Brush Script MT", "Segoe Script", cursive; font-size: 1.5rem; }
+.member-row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.member-row .member-name { flex: 1.4; min-width: 0; }
+.member-row .member-type { flex: 1; min-width: 0; }
+.icon-btn, .icon-btn-space { flex: none; width: 44px; height: 44px; }
+.icon-btn { border: 2px solid var(--edge); border-radius: 10px; background: #fff; color: var(--ink); font-size: 1.125rem; cursor: pointer; }
+.icon-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.check-row { display: flex; gap: 12px; align-items: flex-start; margin: 14px 0 4px; cursor: pointer; }
+.check-row input { width: 24px; height: 24px; flex: none; margin: 2px 0 0; accent-color: var(--green); }
+.rules-list { margin: 0 0 12px; padding-left: 22px; }
+.rules-list li { margin-bottom: 6px; }
+.form-error { margin: 0 16px 12px; padding: 10px 12px; border-radius: 10px; background: #fde2e2; color: #8a1414; font-weight: 700; }
+
+/* The tickets */
+.group-summary { margin: 0 16px 12px; padding: 14px 16px; border-radius: 14px; background: var(--green); color: var(--cream); }
+.group-summary p { margin: 2px 0; }
+.group-code { display: flex; align-items: baseline; gap: 10px; }
+.group-code span { font-size: 0.875rem; opacity: .85; }
+.group-code b { font: 800 1.75rem var(--head); letter-spacing: 2px; color: #fff; }
+.done-note { margin: 0 16px 12px; padding: 10px 12px; border-radius: 10px; background: #dcf5e3; color: #11713a; font-weight: 700; }
+.pay-card { border: 2px solid var(--amber); }
+.swipe-hint { margin: 0 16px 6px; color: var(--muted); font-size: 0.875rem; }
+.ticket-list {
+  display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory;
+  padding: 2px 16px 16px; -webkit-overflow-scrolling: touch;
+}
+.ticket {
+  flex: 0 0 82%; max-width: 320px; scroll-snap-align: center;
+  background: #fff; border: 2px solid var(--brown); border-radius: 16px; overflow: hidden; text-align: center;
+}
+.ticket-top { background: var(--cream); border-bottom: 2px dashed var(--brown); padding: 10px 12px; }
+.ticket-top img { height: 48px; width: auto; }
+.ticket-name { margin: 4px 0 0; font: 700 1.375rem var(--head); overflow-wrap: anywhere; }
+.ticket-type { margin: 0; color: var(--muted); font-weight: 600; font-size: 0.875rem; }
+.ticket-qr { width: 72%; margin: 14px auto 4px; }
+.ticket-qr svg { display: block; width: 100%; height: auto; }
+.ticket-number { margin: 0; font: 700 1.125rem var(--head); letter-spacing: 1px; }
+.ticket-state { margin: 4px 0 14px; color: #8a5300; font-weight: 700; }
+.ticket-actions { display: grid; gap: 10px; }
+.ticket-actions .btn + .btn { margin-top: 0; }
+@media (min-width: 760px) and (min-height: 501px) {
+  .ticket-list { flex-wrap: wrap; overflow: visible; }
+  .ticket { flex: 0 0 260px; }
+  .swipe-hint { display: none; }
+  main:has(#tickets-app) { display: block; }
+  .tickets-app { max-width: 760px; }
+}
+/* Calm mode: no strong red/amber */
+html.calm .pay-card { border-color: var(--line); }
+/* Narrow phones: name on its own line, ticket type underneath */
+@media (max-width: 440px) {
+  .member-row { flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  .member-row .member-name { flex: 1 1 100%; }
+}
+
+
+/* ---------- Preview bar (organisers only, ?preview=1) ---------- */
+.preview-bar {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 8px; padding: 6px 10px; border-radius: 10px;
+  background: var(--green); color: var(--cream); font-size: 0.8125rem;
+}
+.preview-tag { text-transform: uppercase; letter-spacing: .5px; font-weight: 700; opacity: .85; }
+.preview-time { font: 700 1.125rem var(--head); min-width: 48px; }
+#pv-slider { flex: 1; min-width: 0; accent-color: var(--yellow, #f5c518); height: 28px; }
+.preview-close { border: 0; background: none; color: var(--cream); font-size: 1rem; width: 32px; height: 32px; cursor: pointer; border-radius: 8px; }
+.preview-close:focus-visible, #pv-slider:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+@media (min-width: 760px) and (min-height: 501px) { .preview-bar { max-width: 1048px; margin: 8px auto 0; } }
+
+
+/* ---------- Sharing tickets ---------- */
+.ticket-share {
+  display: block; width: calc(100% - 28px); margin: 0 14px 14px; padding: 10px;
+  border: 2px solid var(--edge); border-radius: 10px; background: var(--light);
+  color: var(--green); font: 700 0.9375rem var(--font); cursor: pointer;
+}
+.ticket-share:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.share-status { margin: 0 16px 12px; padding: 8px 12px; border-radius: 10px; background: #e3eefa; color: #1d4f80; }
+.shared-section { margin: 4px 0 8px; }
+.shared-h { margin: 0 16px 4px; font-size: 1.25rem; }
+.incoming { border: 2px solid var(--green); }
+.incoming-list { padding-left: 20px; }
+.incoming .btn.alt { margin-top: 10px; }
+
+
+/* ---------- Paid tickets ---------- */
+.ticket { position: relative; }
+.ticket.is-paid { border-color: #11713a; }
+.ticket.is-paid .ticket-top { background: #dcf5e3; border-bottom-color: #11713a; }
+.ticket-state.paid { color: #11713a; font-size: 1.25rem; }
+.paid-stamp {
+  position: absolute; top: 12px; right: 8px; transform: rotate(-12deg); /* top corner: never over the name or the QR code (the gate still scans it) */
+  padding: 0 10px; border: 3px solid #11713a; border-radius: 8px;
+  color: #11713a; background: rgba(255,255,255,.88);
+  font: 800 1.25rem var(--head); letter-spacing: 2px; pointer-events: none;
+}
+.pay-card.all-paid { border-color: #11713a; background: #dcf5e3; }
+.pay-card.all-paid h2 { color: #11713a; }
+html.calm .paid-stamp { transform: none; }
+
+
+/* ---------- News ---------- */
+.latest-news .news-item { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.latest-news .news-item:last-of-type { border-bottom: 0; margin-bottom: 4px; }
+.news-title { margin: 0; font-size: 1.25rem; color: var(--ink); }
+.latest-news .news-title { font-size: 1.125rem; }
+.news-when { margin: 2px 0 6px; color: var(--muted); font-size: 0.8125rem; }
+.news-body p { margin: 0 0 8px; }
+.news-urgent-tag {
+  display: inline-block; margin-bottom: 4px; padding: 1px 8px; border-radius: 6px;
+  background: #fde2e2; color: #a01919; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+}
+.news-banner {
+  position: relative; z-index: 19;
+  display: flex; gap: 10px; align-items: flex-start;
+  margin: 0; padding: 10px 12px 10px 16px;
+  background: #c8202a; color: #fff;
+}
+.news-banner-text { flex: 1; }
+.news-banner-text b { display: block; font-size: 1rem; }
+.news-banner-text span { font-size: 0.9375rem; }
+.news-banner-close { flex: none; width: 36px; height: 36px; border: 0; border-radius: 8px; background: rgba(255,255,255,.2); color: #fff; font-size: 1rem; cursor: pointer; }
+.news-banner-close:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+html.calm .news-banner { background: #a5524f; }
+html.calm .news-urgent-tag { background: var(--light); color: var(--ink); }
+
+/* ---------- Add to Home Screen tip ---------- */
+.install-tip { position: relative; display: flex; gap: 12px; align-items: flex-start; border: 2px solid var(--green); }
+.install-tip[hidden] { display: none; }
+.install-tip img { border-radius: 12px; flex: none; }
+.install-tip h2 { font-size: 1.125rem; margin: 0 28px 4px 0; }
+.install-tip p { margin: 0 0 6px; }
+.install-tip .btn { width: auto; padding: 10px 22px; margin-top: 4px; }
+.install-close { position: absolute; top: 6px; right: 6px; width: 36px; height: 36px; border: 0; background: none; font-size: 1rem; cursor: pointer; color: var(--muted); border-radius: 8px; }
+.install-close:focus-visible { outline: 3px solid var(--focus); }
+
+/* ---------- Organiser news page ---------- */
+textarea.input { min-height: 96px; resize: vertical; }
+.admin-h { margin: 18px 16px 8px; font-size: 1.125rem; }
+.admin-post h3 { margin: 2px 0; }
+.admin-status { margin: 0; font-weight: 700; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: .4px; }
+.admin-status.live { color: #11713a; }
+.admin-status.scheduled { color: #8a5300; }
+.admin-status.expired { color: var(--muted); }
