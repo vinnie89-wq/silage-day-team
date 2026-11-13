@@ -200,3 +200,17 @@
 .sort-row { display: flex; align-items: center; gap: 8px; margin: 0 16px 10px; font-size: 0.875rem; flex-wrap: wrap; }
 .sort-row .input { width: auto; padding: 6px 10px; font-size: 0.875rem; }
 .action .action-edit .input, .action .comment-add .input { width: 100%; height: auto; margin: 0; flex: 1; accent-color: auto; }
+
+/* Actions: tap the title to open/close; status is a dropdown (no tick box) */
+.action { padding: 10px 12px; }
+.action-toggle { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 0 24px 0 0; font: inherit; color: inherit; cursor: pointer; position: relative; }
+.action-toggle:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.action-chevron { position: absolute; right: 0; top: 0; color: var(--green); font-size: 1rem; }
+.action-status { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.8125rem; font-weight: 700; color: var(--muted); }
+.action-status .input { width: auto; flex: 0 1 220px; padding: 5px 10px; font-size: 0.875rem; font-weight: 600; height: auto; }
+.action-status .st-done { background: #e7f1fb; color: #15528f; } .action-status .st-blocked { background: #fbebeb; color: #b71c1c; }
+.action-status .st-waiting { background: #fff1cc; color: #7a5200; } .action-status .st-doing { background: #e7f1fb; }
+.action-edit { background: var(--light); border-radius: 10px; padding: 6px 10px 10px; margin-top: 10px; }
+.comments-h { margin: 12px 0 4px; font-size: 0.9375rem; }
+.action.done .action-text { text-decoration: none; color: var(--muted); }
+.action .action-status select.input { padding: 6px 10px; font-size: 0.9375rem; min-height: 0; width: auto; max-width: 240px; margin: 0; }
