@@ -34,7 +34,8 @@ const SECTIONS = ["Running the event", "Site and safety", "Exhibitors and trader
 const ACCESS = { open: ["Open", "opens straight from the link"], sign: ["Sign in", "needs a free Claude account"], invite: ["Invite only", "organisers invited by the owner"] };
 
 let fb, user;
-let meetings = [], actions = [], docs = [];
+let meetings = [], actions = [], docs = [], gantt = [];
+let planSel = null, planView = "focus", planStream = "";
 let tab = (location.hash || "#dashboard").slice(1);
 let stops = [];
 let actionFilter = "open";
@@ -101,6 +102,9 @@ function listen() {
   stops.push(F.onSnapshot(F.query(F.collection(db, "actions"), F.orderBy("createdAt", "desc"), F.limit(300)), (s) => {
     actions = s.docs.map((d) => ({ id: d.id, ...d.data() })); if (["dashboard", "actions"].includes(tab)) show();
   }));
+  stops.push(F.onSnapshot(F.collection(db, "gantt"), (s) => {
+    gantt = s.docs.map((d) => ({ id: d.id, ...d.data() })); if (tab === "dashboard") drawPlan();
+  }, () => {}));
   stops.push(F.onSnapshot(F.query(F.collection(db, "teamDocs"), F.orderBy("order", "asc"), F.limit(300)), (s) => {
     docs = s.docs.map((d) => ({ id: d.id, ...d.data() })); if (tab === "docs") show();
   }));
@@ -179,6 +183,7 @@ function showDashboard() {
   hub.innerHTML =
     '<h1 class="page-title">Dashboard</h1>' +
     '<div class="countdown"><b>' + days + '</b><div>days to go until<br><strong>' + showDay().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) + '</strong></div></div>' +
+    '<section class="card plan-card" id="plan-card"></section>' +
     '<section class="card"><h2>🎟️ Tickets</h2>' + (s ?
       '<div class="dash-grid">' + tile(s.groups, "groups registered", "#dashboard") + tile(s.people, "people", "#dashboard") +
         tile(s.week, "new groups this week", "#dashboard") + tile(s.paid, "paid at the gate", "#dashboard") + '</div>' +
@@ -200,6 +205,7 @@ function showDashboard() {
     (s && s.errors.length ? '<p class="form-error">Couldn\'t load: ' + s.errors.join(", ") + '. Check the security rules include the team hub section.</p>' : '') +
     '<div class="pad-x"><button type="button" class="btn alt" id="refresh">↻ Refresh figures</button></div>';
   $("refresh").onclick = () => { stats = null; statsAt = 0; showDashboard(); };
+  drawPlan();
 }
 
 // "meet.google.com/abc" → "https://meet.google.com/abc" (people rarely type the https://)
@@ -405,7 +411,7 @@ function docForm(d) {
 // One-off import: paste the list (JSON) that came with this update
 function importForm() {
   $("doc-form").innerHTML = '<form class="card form-card" id="if"><h2>Import</h2>' +
-    '<p>Choose the <b>team-hub-import.json</b> file – or paste its contents in the box. It adds the documents, meetings and actions in it to the hub (anything already there is kept, and nothing is added twice).</p>' +
+    '<p>Choose the <b>team-hub-import.json</b> file – or paste its contents in the box. It adds the documents, meetings, actions and plan tasks in it to the hub (anything already there is kept, and nothing is added twice).</p>' +
     '<label class="field" for="imp-file">The file</label><input class="input" id="imp-file" type="file" accept=".json,application/json,text/plain">' +
     '<label class="field" for="imp">…or paste the text</label><textarea class="input" id="imp" rows="6" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>' +
     '<p class="form-error" id="if-err" hidden></p><button type="submit" class="btn">Import</button>' +
@@ -437,21 +443,148 @@ function importForm() {
         end: x.end ? F.Timestamp.fromDate(new Date(x.end)) : null, link: String(x.link || ""), agendaUrl: String(x.agendaUrl || ""), notes: String(x.notes || ""),
         createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp() }); m++;
     });
-    // Actions: { text, owner, due: "YYYY-MM-DD", done } – skipped if the same text is already there
+    // Actions: { text, owner, due: "YYYY-MM-DD", done } – one with the same text is not added again,
+    // but if it's still open and its due date has changed (the plan moved), the date is updated
     const have = new Set(actions.map((a) => (a.text || "").trim().toLowerCase()));
+    let moved = 0;
     (data.actions || []).forEach((a) => {
       const text = String(a.text || "").trim().slice(0, 300);
-      if (!text || have.has(text.toLowerCase())) return;
+      if (!text) return;
+      // "was": the action's old wording – rename it rather than add a second copy
+      const wasOld = a.was && !have.has(text.toLowerCase()) && actions.find((x) => (x.text || "").trim().toLowerCase() === String(a.was).trim().toLowerCase());
+      if (wasOld) {
+        batch.update(F.doc(db, "actions", wasOld.id), { text, ...(/^\d{4}-\d{2}-\d{2}$/.test(a.due || "") ? { due: F.Timestamp.fromDate(new Date(a.due + "T12:00")) } : {}), updatedAt: F.serverTimestamp() });
+        have.add(text.toLowerCase()); moved++; return;
+      }
+      if (have.has(text.toLowerCase())) {
+        const old = actions.find((x) => (x.text || "").trim().toLowerCase() === text.toLowerCase());
+        if (old && !old.done && /^\d{4}-\d{2}-\d{2}$/.test(a.due || "") && (!old.due || new Date(tsMs(old.due)).toISOString().slice(0, 10) !== a.due)) {
+          batch.update(F.doc(db, "actions", old.id), { due: F.Timestamp.fromDate(new Date(a.due + "T12:00")), updatedAt: F.serverTimestamp() }); moved++;
+        }
+        return;
+      }
       have.add(text.toLowerCase());
       batch.set(F.doc(F.collection(db, "actions")), { text, owner: String(a.owner || ""),
         due: /^\d{4}-\d{2}-\d{2}$/.test(a.due || "") ? F.Timestamp.fromDate(new Date(a.due + "T12:00")) : null, done: !!a.done,
         createdBy: user.email, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp() }); k++;
     });
-    try { await batch.commit(); $("doc-form").innerHTML = '<p class="map-message">Imported ' + n + ' documents, ' + m + ' meetings and ' + k + ' actions. ✓</p>'; }
+    // The plan (Gantt tasks): { code, name, stream, days, after, fixed, note, order } – kept by code; existing tasks are left as they are
+    let g = 0;
+    (data.gantt || []).forEach((t) => {
+      const code = String(t.code || "").trim().toUpperCase();
+      if (!/^[A-Z0-9]{1,4}$/.test(code) || gantt.some((x) => x.id === code)) return;
+      batch.set(F.doc(db, "gantt", code), { code, name: String(t.name || code), stream: String(t.stream || "Other"), days: Number(t.days) || 0,
+        after: Array.isArray(t.after) ? t.after.map(String) : [], fixed: t.fixed || null, note: String(t.note || ""), done: !!t.done, order: Number(t.order) || 0,
+        updatedBy: user.email, updatedAt: F.serverTimestamp() }); g++;
+    });
+    try {
+      await batch.commit();
+      $("doc-form").innerHTML = '<p class="map-message">Imported ' + n + ' documents, ' + m + ' meetings, ' + k + ' actions' + (moved ? ' (' + moved + ' due dates updated)' : '') + (g ? ' and ' + g + ' plan tasks' : '') + '. ✓</p>';
+    }
     catch (x) { err("That didn't save: " + x.message); }
   };
 }
 
+
+/* ---------- The plan (critical path and Gantt chart) ----------
+   Tasks live in Firebase "gantt" (one per code: G1, R2 …), imported once
+   from the plan file and then kept up to date here. js/gantt.js works out
+   the dates and draws the chart. Actions are linked to a task by starting
+   with its code ("G1 · …"), so each task shows its open actions. */
+const codeOf = (text) => { const m = /^([A-Z][A-Z0-9]{0,3}) [◆·]/.exec(text || ""); return m ? m[1] : null; };
+function planNow() { return Gantt.compute(gantt.map((t) => ({ ...t, code: t.code || t.id })), { start: "2026-11-09", show: showDayIso }); }
+
+function drawPlan() {
+  const card = $("plan-card");
+  if (!card) return;
+  if (!gantt.length) {
+    card.innerHTML = '<h2>📈 Plan</h2><p class="muted">The critical path and Gantt chart show here once the plan is imported: Documents → ⤓ Import → choose <b>team-hub-plan.json</b>.</p>';
+    return;
+  }
+  const plan = planNow(), G = Gantt;
+  const counts = {};
+  actions.filter((a) => !a.done).forEach((a) => { const c = codeOf(a.text); if (c) counts[c] = (counts[c] || 0) + 1; });
+  const weeks = (d) => Math.floor(d / 7);
+  const views = { focus: "Critical & near", soon: "Next 3 months", all: "All" };
+  const filter = (t) => (!planStream || t.stream === planStream) &&
+    (planView === "all" || (planView === "focus" ? ["crit", "near"].includes(t.kind) || (!t.done && t.lf < plan.today) || t.code === planSel
+      : (!t.done && t.ls <= plan.today + 92) || t.code === planSel));
+  card.innerHTML = '<h2>📈 Plan</h2>' +
+    '<div class="dash-grid">' +
+      '<div class="dash-tile' + (plan.minSlack < 28 ? " warn" : "") + '"><b>' + weeks(plan.minSlack) + ' wk</b><span>in hand on the critical path</span></div>' +
+      '<div class="dash-tile' + (plan.overdue.length ? " warn" : "") + '"><b>' + plan.overdue.length + '</b><span>past their latest finish</span></div>' +
+      '<div class="dash-tile"><b>' + plan.tasks.filter((t) => t.done).length + '/' + plan.tasks.length + '</b><span>tasks done</span></div>' +
+    '</div>' +
+    '<p class="plan-crit"><b>Critical path:</b> ' + plan.critical.map((t) => '<button type="button" class="link-btn" data-plan="' + t.code + '">' + t.code + '</button>').join(" → ") +
+      ' <span class="muted">(' + G.esc([...new Set(plan.critical.map((t) => t.stream))].join(", ")) + ')</span></p>' +
+    (plan.problems.length ? '<p class="form-error">⚠ ' + G.esc(plan.problems.join(" · ")) + '</p>' : '') +
+    '<p class="plan-next"><b>Next latest starts:</b> ' + plan.upcoming.slice(0, 4).map((t) => '<button type="button" class="link-btn" data-plan="' + t.code + '">' + t.code + '</button> ' + G.fmt(t.ls)).join(" · ") + '</p>' +
+    '<div class="chips plan-chips">' + Object.entries(views).map(([k, l]) => '<button type="button" class="chip' + (planView === k ? " on" : "") + '" data-view="' + k + '">' + l + '</button>').join("") +
+      '<select class="input plan-stream" id="plan-stream" aria-label="Workstream"><option value="">All workstreams</option>' + plan.streams.map((s) => '<option' + (s === planStream ? " selected" : "") + '>' + G.esc(s) + '</option>').join("") + '</select></div>' +
+    '<div class="gantt-wrap" id="gantt-chart"></div>' +
+    '<p class="g-legend"><span class="sw k-crit"></span>Critical path <span class="sw k-near"></span>Within 4 weeks of it <span class="sw k-norm"></span>Has slack <span class="sw k-fixed"></span>Fixed date · ┄┤ slack to latest finish · ⚠ late · ✓ done · “· 3” = open actions. Tap a task to see it.</p>' +
+    '<div id="plan-detail"></div>';
+  G.render($("gantt-chart"), plan, { filter, selected: planSel, counts, onSelect: (c) => { planSel = planSel === c ? null : c; drawPlan(); if (planSel) $("plan-detail").scrollIntoView({ behavior: "smooth", block: "nearest" }); } });
+  card.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => { planView = b.dataset.view; drawPlan(); });
+  $("plan-stream").onchange = (e) => { planStream = e.target.value; drawPlan(); };
+  card.querySelectorAll("[data-plan]").forEach((b) => b.onclick = () => { planSel = b.dataset.plan; drawPlan(); $("plan-detail").scrollIntoView({ behavior: "smooth", block: "nearest" }); });
+  if (planSel && plan.by[planSel]) planDetail(plan, plan.by[planSel]);
+}
+
+function planDetail(plan, t) {
+  const G = Gantt, el = $("plan-detail");
+  const linked = actions.filter((a) => codeOf(a.text) === t.code).sort((a, b) => (a.done - b.done) || ((tsMs(a.due) || 9e15) - (tsMs(b.due) || 9e15)));
+  const next = plan.tasks.filter((x) => x.after.includes(t.code));
+  const codeBtn = (c) => '<button type="button" class="link-btn" data-plan="' + c + '">' + c + '</button>';
+  el.innerHTML = '<section class="plan-detail k-' + t.kind + '">' +
+    '<h3>' + G.esc(t.code) + ' – ' + G.esc(t.name) + '</h3>' +
+    '<p class="muted">' + G.esc(t.stream) + ' · ' + G.KIND[t.kind] + (t.done ? ' · <b>done</b>' : '') + '</p>' +
+    '<dl class="facts">' +
+      (t.days ? '<dt>Earliest</dt><dd>' + G.fmt(t.es) + ' → ' + G.fmt(t.ef) + ' (' + t.days + ' days)</dd>' : '<dt>Date</dt><dd>' + G.fmt(t.es) + ' (milestone)</dd>') +
+      (t.fixed ? '' : '<dt>Latest</dt><dd>start ' + G.fmt(t.ls) + ' · finish <b>' + G.fmt(t.lf) + '</b></dd><dt>Slack</dt><dd>' + Math.floor(t.slack / 7) + ' weeks</dd>') +
+      '<dt>After</dt><dd>' + (t.after.length ? t.after.map(codeBtn).join(", ") : '–') + '</dd>' +
+      '<dt>Then</dt><dd>' + (next.length ? next.map((x) => codeBtn(x.code)).join(", ") : '–') + '</dd>' +
+      (t.note ? '<dt>Note</dt><dd>' + G.esc(t.note) + '</dd>' : '') +
+    '</dl>' +
+    '<h4>Actions (' + linked.filter((a) => !a.done).length + ' open)</h4>' +
+    (linked.length ? '<ul class="action-list plan-actions">' + linked.map(actionItem).join("") + '</ul>' : '<p class="muted">None yet.</p>') +
+    '<form class="plan-add" id="pa"><input class="input" id="pa-text" maxlength="270" placeholder="Add an action for ' + G.esc(t.code) + '…"><button type="submit" class="btn alt small">Add</button></form>' +
+    '<div class="meet-card-btns"><button type="button" class="btn alt small" id="pt-done">' + (t.done ? "Mark not done" : "✓ Mark task done") + '</button>' +
+      '<button type="button" class="btn alt small" id="pt-edit">Edit task</button><button type="button" class="btn alt small" id="pt-close">Close</button></div>' +
+    '<div id="pt-form"></div></section>';
+  const { F, db } = fb;
+  el.querySelectorAll("[data-plan]").forEach((b) => b.onclick = () => { planSel = b.dataset.plan; drawPlan(); });
+  el.querySelectorAll("[data-done]").forEach((c) => c.onchange = () => F.updateDoc(F.doc(db, "actions", c.dataset.done), { done: c.checked, updatedAt: F.serverTimestamp() }));
+  el.querySelectorAll("[data-del-action]").forEach((b) => b.onclick = () => { if (confirm("Delete this action?")) F.deleteDoc(F.doc(db, "actions", b.dataset.delAction)); });
+  $("pa").onsubmit = async (e) => {
+    e.preventDefault();
+    const text = $("pa-text").value.trim(); if (!text) return;
+    await F.addDoc(F.collection(db, "actions"), { text: t.code + " · " + text, owner: "", due: t.fixed ? null : F.Timestamp.fromDate(new Date(t.lf * 864e5 + 12 * 3600e3)), done: false,
+      createdBy: user.email, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp() });
+  };
+  $("pt-done").onclick = () => F.updateDoc(F.doc(db, "gantt", t.id || t.code), { done: !t.done, updatedBy: user.email, updatedAt: F.serverTimestamp() });
+  $("pt-close").onclick = () => { planSel = null; drawPlan(); };
+  $("pt-edit").onclick = () => {
+    $("pt-form").innerHTML = '<form class="form-card" id="pe">' +
+      '<label class="field" for="pe-name">Task</label><input class="input" id="pe-name" maxlength="200" value="' + G.esc(t.name) + '">' +
+      '<div class="action-row"><div><label class="field" for="pe-days">Days</label><input class="input" id="pe-days" type="number" min="0" step="1" value="' + t.days + '"></div>' +
+      '<div><label class="field" for="pe-fixed">Fixed start (optional)</label><input class="input" id="pe-fixed" type="date" value="' + (t.fixed || "") + '"></div></div>' +
+      '<label class="field" for="pe-after">After (codes, comma-separated)</label><input class="input" id="pe-after" value="' + G.esc(t.after.join(", ")) + '">' +
+      '<label class="field" for="pe-note">Note</label><input class="input" id="pe-note" maxlength="300" value="' + G.esc(t.note || "") + '">' +
+      '<p class="form-error" id="pe-err" hidden></p><button type="submit" class="btn">Save – recalculate the plan</button></form>';
+    $("pe").onsubmit = async (e) => {
+      e.preventDefault();
+      const after = $("pe-after").value.split(/[\s,]+/).map((c) => c.trim().toUpperCase()).filter(Boolean);
+      const upd = { name: $("pe-name").value.trim() || t.name, days: Math.max(0, Math.round(Number($("pe-days").value) || 0)), fixed: $("pe-fixed").value || null,
+                    after, note: $("pe-note").value.trim(), updatedBy: user.email, updatedAt: F.serverTimestamp() };
+      // Check the change makes sense before saving
+      const test = Gantt.compute(gantt.map((x) => (x.id === t.id ? { ...x, ...upd, code: x.code || x.id } : { ...x, code: x.code || x.id })), { start: "2026-11-09", show: showDayIso });
+      const bad = test.problems.filter((p) => p.includes(t.code));
+      if (bad.length) { $("pe-err").textContent = bad.join(" · "); $("pe-err").hidden = false; return; }
+      await F.updateDoc(F.doc(db, "gantt", t.id || t.code), upd);
+    };
+  };
+}
 
 /* ---------- Tools ---------- */
 function showTools() {
