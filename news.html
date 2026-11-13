@@ -7,7 +7,7 @@
   <title>News – Pembrokeshire Silage Day (organisers)</title>
   <link rel="icon" href="images/logo.png">
   <link rel="stylesheet" href="css/style.css?v=1">
-  <link rel="stylesheet" href="css/team.css?v=8">
+  <link rel="stylesheet" href="css/team.css?v=9">
   <!--
     ORGANISERS ONLY. Part of the Team hub (separate from the visitor app).
     Writes posts to Firebase "news" – the same place the organiser
@@ -39,6 +39,8 @@
       <h2 id="form-h">New post</h2>
       <label class="field" for="titleEn">Headline – English</label>
       <input class="input" id="titleEn" maxlength="120">
+      <button type="button" class="btn alt small" id="translate">🌐 Translate into Welsh</button>
+      <p class="field-hint" id="translate-note">Fills in the Welsh from the English. Machine translation – please have a Welsh speaker check it before it goes out where you can.</p>
       <label class="field" for="titleCy">Headline – Cymraeg</label>
       <input class="input" id="titleCy" maxlength="120">
       <label class="field" for="bodyEn">Text – English</label>
@@ -46,6 +48,14 @@
       <label class="field" for="bodyCy">Text – Cymraeg</label>
       <textarea class="input" id="bodyCy" rows="4" maxlength="2000"></textarea>
       <p class="field-hint">Leave the Welsh empty to show the English to everyone (or the other way round) – but please add both where you can.</p>
+
+      <label class="field" for="photos">Photos (up to 4)</label>
+      <p class="field-hint">They're shrunk automatically so they load quickly on visitors' phones.</p>
+      <input class="input" id="photos" type="file" accept="image/*" multiple>
+      <div class="news-thumbs" id="thumbs"></div>
+      <label class="field" for="youtube">Video – YouTube link (optional)</label>
+      <p class="field-hint">Videos are too big to upload here: put them on YouTube (or the event's channel) and paste the link. Visitors see a picture and tap to play.</p>
+      <input class="input" id="youtube" inputmode="url" placeholder="https://youtu.be/…">
 
       <label class="check-row"><input type="checkbox" id="urgent"><span><b>Urgent alert</b> – shows as a banner on every page for 12 hours (e.g. "Forage harvesting running 15 minutes late")</span></label>
 
@@ -62,6 +72,20 @@
     </form>
 
     <div id="posts"></div>
+
+    <details class="card form-card" id="tr-setup" hidden>
+      <summary><b>Set up automatic translation</b></summary>
+      <p class="muted">Without this, "Translate into Welsh" opens Google Translate in a new tab for you to copy the Welsh back. With a Google Cloud Translation key it fills the boxes in for you.</p>
+      <ol class="muted">
+        <li>In the Google Cloud console for the <b>silage-day</b> project (the same one Firebase uses), turn on the <b>Cloud Translation API</b>. It needs the project's billing turned on (the Blaze plan); the first 500,000 characters a month are free.</li>
+        <li>APIs &amp; Services → Credentials → <b>Create credentials → API key</b>. Restrict it to <b>Websites</b>: <code>vinnie89-wq.github.io/*</code>, and to the <b>Cloud Translation API</b> only.</li>
+        <li>Paste the key here and save. It's kept in the organisers-only part of the database, never in the app's code.</li>
+      </ol>
+      <label class="field" for="tr-key">Translation API key</label>
+      <input class="input" id="tr-key" autocomplete="off" spellcheck="false">
+      <button type="button" class="btn alt" id="tr-save">Save key</button>
+      <p class="muted" id="tr-status"></p>
+    </details>
   </main>
 </div>
 <script src="js/firebase-config.js?v=1"></script>
@@ -88,6 +112,8 @@ if (!firebaseConfigured()) {
     $("signin").hidden = !!organiser;
     $("signout").hidden = !organiser;
     $("post-form").hidden = !organiser;
+    $("tr-setup").hidden = !organiser;
+    if (organiser) loadKey();
     $("who").textContent = organiser ? "Signed in as " + user.email : "Sign in with your organiser Google account.";
     if (stopListening) { stopListening(); stopListening = null; }
     $("posts").innerHTML = "";
@@ -98,6 +124,104 @@ if (!firebaseConfigured()) {
       }, (e) => msg("Couldn't load posts: " + e.message));
     }
   });
+
+  /* ---------- Photos ----------
+     Each photo is shrunk (longest side 1280 px, JPEG) and saved as its own
+     document in "newsImages"; the post keeps a list of their ids. */
+  let photos = [];        // [{ id } for saved ones, or { data } for new ones]
+  let removedPhotos = [];  // saved photos taken off while editing – deleted on save
+  function shrinkPhoto(file) {
+    return new Promise((ok, fail) => {
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        const out = (max, q) => {
+          const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+          const c = document.createElement("canvas");
+          c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          return c.toDataURL("image/jpeg", q);
+        };
+        let data = out(1280, 0.8);
+        if (data.length > 700000) data = out(1000, 0.7);
+        URL.revokeObjectURL(url);
+        data.length > 950000 ? fail(new Error("too big")) : ok(data);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); fail(new Error("not a picture")); };
+      img.src = url;
+    });
+  }
+  const thumbCache = {};
+  async function drawThumbs() {
+    $("thumbs").innerHTML = photos.map((p, i) => '<figure><img id="th-' + i + '" alt=""' + (p.data || thumbCache[p.id] ? ' src="' + (p.data || thumbCache[p.id]) + '"' : '') + '>' +
+      '<button type="button" class="btn alt small" data-rm-photo="' + i + '">Remove</button></figure>').join("");
+    $("thumbs").querySelectorAll("[data-rm-photo]").forEach((b) => b.onclick = () => {
+      const [p] = photos.splice(Number(b.dataset.rmPhoto), 1);
+      if (p.id) removedPhotos.push(p.id);
+      drawThumbs();
+    });
+    photos.forEach(async (p, i) => {
+      if (p.id && !thumbCache[p.id]) {
+        try { const snap = await F.getDoc(F.doc(db, "newsImages", p.id)); if (snap.exists()) { thumbCache[p.id] = snap.data().data; const el = $("th-" + i); if (el) el.src = thumbCache[p.id]; } } catch (e) {}
+      }
+    });
+  }
+  $("photos").onchange = async (e) => {
+    const files = [...e.target.files];
+    for (const f of files) {
+      if (photos.length >= 4) { alert("Up to 4 photos per post."); break; }
+      try { photos.push({ data: await shrinkPhoto(f) }); } catch (x) { alert(f.name + " didn't work – try a JPG or PNG."); }
+    }
+    e.target.value = "";
+    drawThumbs();
+  };
+  function youtubeId(v) {
+    v = (v || "").trim();
+    if (!v) return "";
+    const m = v.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([\w-]{6,20})/);
+    return m ? m[1] : (/^[\w-]{11}$/.test(v) ? v : null);
+  }
+
+  /* ---------- Translate into Welsh ----------
+     With a Google Cloud Translation key (saved in teamSecrets/translate) it
+     fills the Welsh boxes in. Without one it opens Google Translate. */
+  let trKey = "";
+  async function loadKey() {
+    try { const snap = await F.getDoc(F.doc(db, "teamSecrets", "translate")); trKey = snap.exists() ? (snap.data().googleKey || "") : ""; } catch (e) { trKey = ""; }
+    $("tr-key").value = trKey ? "••••••••" + trKey.slice(-4) : "";
+    $("tr-status").textContent = trKey ? "A key is saved – Translate fills the Welsh in for you." : "No key saved yet.";
+  }
+  $("tr-save").onclick = async () => {
+    const k = $("tr-key").value.trim();
+    if (k.startsWith("••")) return;
+    try { await F.setDoc(F.doc(db, "teamSecrets", "translate"), { googleKey: k, updatedBy: auth.currentUser.email, updatedAt: F.serverTimestamp() }); await loadKey(); }
+    catch (e) { $("tr-status").textContent = "Didn't save: " + e.message; }
+  };
+  $("translate").onclick = async () => {
+    const title = $("titleEn").value.trim(), body = $("bodyEn").value.trim();
+    if (!title && !body) return alert("Write the English first.");
+    if (($("titleCy").value.trim() || $("bodyCy").value.trim()) && !confirm("Replace the Welsh that's already there?")) return;
+    if (!trKey) {
+      window.open("https://translate.google.com/?sl=en&tl=cy&op=translate&text=" + encodeURIComponent(title + "\n\n" + body), "_blank", "noopener");
+      $("translate-note").textContent = "Google Translate has opened in a new tab – copy the Welsh back into the boxes below. (To have it filled in for you, see \"Set up automatic translation\" at the bottom of this page.)";
+      return;
+    }
+    $("translate").disabled = true; $("translate").textContent = "Translating…";
+    try {
+      const res = await fetch("https://translation.googleapis.com/language/translate/v2?key=" + encodeURIComponent(trKey), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ q: [title, body], source: "en", target: "cy", format: "text" })
+      });
+      const out = await res.json();
+      if (!res.ok) throw new Error((out.error && out.error.message) || res.status);
+      const [tTitle, tBody] = out.data.translations.map((x) => x.translatedText);
+      if (title) $("titleCy").value = tTitle.slice(0, 120);
+      if (body) $("bodyCy").value = tBody.slice(0, 2000);
+      $("translate-note").textContent = "Welsh filled in by machine translation – please have a Welsh speaker check it where you can.";
+    } catch (e) {
+      $("translate-note").textContent = "Translation didn't work (" + e.message + "). Check the key in \"Set up automatic translation\".";
+    }
+    $("translate").disabled = false; $("translate").textContent = "🌐 Translate into Welsh";
+  };
 
   // datetime-local <-> Date
   const toInput = (ts) => { if (!ts) return ""; const d = ts.toDate(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
@@ -121,7 +245,11 @@ if (!firebaseConfigured()) {
     $("posts").querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => startEdit(b.dataset.edit));
     $("posts").querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => {
       if (!confirm("Delete this post? Visitors will stop seeing it straight away.")) return;
-      try { await F.deleteDoc(F.doc(db, "news", b.dataset.del)); } catch (e) { alert("That didn't work: " + e.message); }
+      const post = posts.find((x) => x.id === b.dataset.del);
+      try {
+        await F.deleteDoc(F.doc(db, "news", b.dataset.del));
+        for (const id of (post && post.images) || []) { try { await F.deleteDoc(F.doc(db, "newsImages", id)); } catch (e) {} }
+      } catch (e) { alert("That didn't work: " + e.message); }
     });
   }
 
@@ -130,7 +258,8 @@ if (!firebaseConfigured()) {
     return '<section class="card admin-post">' +
       '<p class="admin-status ' + cls + '">' + label + (p.urgent ? ' · ⚠ Urgent' : '') + '</p>' +
       '<h3>' + esc(p.titleEn || p.titleCy) + '</h3>' + (p.titleCy && p.titleEn ? '<p class="muted">' + esc(p.titleCy) + '</p>' : '') +
-      '<p class="muted">Publish: ' + fmt(p.publishAt) + (p.hideAt ? ' · Hide: ' + fmt(p.hideAt) : '') + '</p>' +
+      '<p class="muted">Publish: ' + fmt(p.publishAt) + (p.hideAt ? ' · Hide: ' + fmt(p.hideAt) : '') +
+        ((p.images || []).length ? ' · 📷 ' + p.images.length : '') + (p.youtube ? ' · ▶ video' : '') + '</p>' +
       '<div class="approve-btns"><button type="button" class="btn alt" data-edit="' + p.id + '">Edit</button>' +
       '<button type="button" class="btn alt" data-del="' + p.id + '">Delete</button></div>' +
     '</section>';
@@ -143,6 +272,8 @@ if (!firebaseConfigured()) {
     $("urgent").checked = !!p.urgent;
     $("publishAt").value = toInput(p.publishAt);
     $("hideAt").value = toInput(p.hideAt);
+    photos = (p.images || []).map((id) => ({ id })); removedPhotos = []; drawThumbs();
+    $("youtube").value = p.youtube ? "https://youtu.be/" + p.youtube : "";
     $("form-h").textContent = "Edit post";
     $("save").textContent = "Save changes";
     $("cancel-edit").hidden = false;
@@ -151,6 +282,7 @@ if (!firebaseConfigured()) {
   function resetForm() {
     editingId = null;
     $("post-form").reset();
+    photos = []; removedPhotos = []; drawThumbs();
     $("form-h").textContent = "New post";
     $("save").textContent = "Publish";
     $("cancel-edit").hidden = true;
@@ -170,12 +302,22 @@ if (!firebaseConfigured()) {
     if (!data.titleEn && !data.titleCy) return err("Please write a headline (English, Welsh or both).");
     const pub = fromInput($("publishAt").value), hide = fromInput($("hideAt").value);
     if (hide && hide <= (pub || new Date())) return err("'Hide after' must be after the publish time.");
+    const yt = youtubeId($("youtube").value);
+    if (yt === null) return err("That doesn't look like a YouTube link – it should look like https://youtu.be/… or https://www.youtube.com/watch?v=…");
+    data.youtube = yt;
     data.publishAt = pub ? F.Timestamp.fromDate(pub) : F.serverTimestamp();
     data.hideAt = hide ? F.Timestamp.fromDate(hide) : null;
     data.author = auth.currentUser.email;
     data.updatedAt = F.serverTimestamp();
     $("save").disabled = true;
     try {
+      // Save new photos first, then the post with their ids
+      data.images = [];
+      for (const p of photos) {
+        if (p.id) data.images.push(p.id);
+        else { const ref = await F.addDoc(F.collection(db, "newsImages"), { data: p.data }); thumbCache[ref.id] = p.data; data.images.push(ref.id); }
+      }
+      for (const id of removedPhotos) { try { await F.deleteDoc(F.doc(db, "newsImages", id)); } catch (e) {} }
       if (editingId) {
         await F.updateDoc(F.doc(db, "news", editingId), data);
       } else {
