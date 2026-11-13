@@ -120,3 +120,10 @@
 .sp-sub { margin: 18px 0 2px; color: var(--green); }
 .sp-thumb { flex: none; width: 56px; height: 36px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
 .action .badge { align-self: center; }
+/* News: photos and translate */
+.news-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin: 8px 0; }
+.news-thumbs figure { margin: 0; display: grid; gap: 4px; }
+.news-thumbs img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 8px; background: var(--light); }
+#translate { margin: 10px 0 2px; }
+#tr-setup summary { cursor: pointer; color: var(--green); }
+#tr-setup code { background: var(--light); padding: 1px 4px; border-radius: 4px; }
