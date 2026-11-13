@@ -405,7 +405,7 @@ function docForm(d) {
 // One-off import: paste the list (JSON) that came with this update
 function importForm() {
   $("doc-form").innerHTML = '<form class="card form-card" id="if"><h2>Import</h2>' +
-    '<p>Choose the <b>team-hub-import.json</b> file – or paste its contents in the box. It adds the documents and meetings to the hub (anything already there is kept).</p>' +
+    '<p>Choose the <b>team-hub-import.json</b> file – or paste its contents in the box. It adds the documents, meetings and actions in it to the hub (anything already there is kept, and nothing is added twice).</p>' +
     '<label class="field" for="imp-file">The file</label><input class="input" id="imp-file" type="file" accept=".json,application/json,text/plain">' +
     '<label class="field" for="imp">…or paste the text</label><textarea class="input" id="imp" rows="6" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>' +
     '<p class="form-error" id="if-err" hidden></p><button type="submit" class="btn">Import</button>' +
@@ -425,7 +425,7 @@ function importForm() {
     catch (x) { return err(file ? "That file isn't the import file – choose team-hub-import.json." : "That isn't valid import text. Easiest fix: use 'The file' above and choose team-hub-import.json instead of pasting."); }
     const { F, db } = fb;
     const batch = F.writeBatch(db);
-    let order = docs.length ? Math.max(...docs.map((x) => x.order || 0)) : 0, n = 0, m = 0;
+    let order = docs.length ? Math.max(...docs.map((x) => x.order || 0)) : 0, n = 0, m = 0, k = 0;
     (data.documents || []).forEach((d) => {
       if (!d.title || !d.url || docs.some((x) => x.url === d.url)) return;
       batch.set(F.doc(F.collection(db, "teamDocs")), { title: String(d.title), note: String(d.note || ""), url: String(d.url),
@@ -437,7 +437,17 @@ function importForm() {
         end: x.end ? F.Timestamp.fromDate(new Date(x.end)) : null, link: String(x.link || ""), agendaUrl: String(x.agendaUrl || ""), notes: String(x.notes || ""),
         createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp() }); m++;
     });
-    try { await batch.commit(); $("doc-form").innerHTML = '<p class="map-message">Imported ' + n + ' documents and ' + m + ' meetings. ✓</p>'; }
+    // Actions: { text, owner, due: "YYYY-MM-DD", done } – skipped if the same text is already there
+    const have = new Set(actions.map((a) => (a.text || "").trim().toLowerCase()));
+    (data.actions || []).forEach((a) => {
+      const text = String(a.text || "").trim().slice(0, 300);
+      if (!text || have.has(text.toLowerCase())) return;
+      have.add(text.toLowerCase());
+      batch.set(F.doc(F.collection(db, "actions")), { text, owner: String(a.owner || ""),
+        due: /^\d{4}-\d{2}-\d{2}$/.test(a.due || "") ? F.Timestamp.fromDate(new Date(a.due + "T12:00")) : null, done: !!a.done,
+        createdBy: user.email, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp() }); k++;
+    });
+    try { await batch.commit(); $("doc-form").innerHTML = '<p class="map-message">Imported ' + n + ' documents, ' + m + ' meetings and ' + k + ' actions. ✓</p>'; }
     catch (x) { err("That didn't save: " + x.message); }
   };
 }
