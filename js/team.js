@@ -14,6 +14,7 @@
      meetings/{id}  title, start, end, link, agendaUrl, guests, notes
      actions/{id}   text, owner, due, done, createdBy, createdAt, updatedAt
      teamDocs/{id}  title, note, url, section, access, order
+     config/prices  adult, child (£), show – read by the visitor app
    It also READS the visitor app's registrations, checkins,
    pending (photos) and news for the dashboard.
 
@@ -126,19 +127,26 @@ async function loadStats() {
   if (statsLoading) return;
   statsLoading = true;
   const { F, db } = fb;
-  const s = { groups: 0, people: 0, adult: 0, child: 0, under5: 0, week: 0, paid: 0, photos: 0, newsLive: 0, newsScheduled: 0, latest: null, errors: [] };
+  const s = { groups: 0, people: 0, adult: 0, child: 0, under5: 0, week: 0, paid: 0, photos: 0, newsLive: 0, newsScheduled: 0, latest: null, errors: [],
+    prices: null, expected: 0, taken: 0 };
+  const types = {}; // "CODE|n" → ticket type, to price what's been paid
+  try {
+    const pr = await F.getDoc(F.doc(db, "config", "prices"));
+    if (pr.exists()) s.prices = pr.data();
+  } catch (e) { s.errors.push("prices"); }
+  const priceOf = (type) => !s.prices ? 0 : type === "adult" ? Number(s.prices.adult) || 0 : type === "child" ? Number(s.prices.child) || 0 : 0;
   const weekAgo = Date.now() - 7 * 864e5;
   try {
     const regs = await F.getDocs(F.collection(db, "registrations"));
     regs.forEach((d) => {
       const r = d.data(); s.groups++;
-      (r.members || []).forEach((m) => { s.people++; if (s[m.type] !== undefined) s[m.type]++; });
+      (r.members || []).forEach((m) => { s.people++; if (s[m.type] !== undefined) s[m.type]++; types[d.id + "|" + m.n] = m.type; s.expected += priceOf(m.type); });
       if (tsMs(r.createdAt) > weekAgo) s.week++;
     });
   } catch (e) { s.errors.push("registrations"); }
   try {
     const ch = await F.getDocs(F.collection(db, "checkins"));
-    ch.forEach((d) => { s.paid += (d.data().paid || []).length; });
+    ch.forEach((d) => { (d.data().paid || []).forEach((n) => { s.paid++; s.taken += priceOf(types[d.id + "|" + n]); }); });
   } catch (e) { s.errors.push("payments"); }
   try {
     const c = await F.getCountFromServer(F.collection(db, "pending"));
@@ -170,6 +178,9 @@ function showDashboard() {
     '<section class="card"><h2>🎟️ Tickets</h2>' + (s ?
       '<div class="dash-grid">' + tile(s.groups, "groups registered", "#dashboard") + tile(s.people, "people", "#dashboard") +
         tile(s.week, "new groups this week", "#dashboard") + tile(s.paid, "paid at the gate", "#dashboard") + '</div>' +
+      (s.prices ? '<p class="money-line">💷 <b>' + money(s.expected) + '</b> expected at the gate if everyone comes · <b>' + money(s.taken) + '</b> taken so far' +
+        (s.prices.show ? '' : ' <span class="muted">(using the proposed prices – not yet shown to visitors)</span>') + '</p>'
+        : '<p class="muted">Set ticket prices in <a href="#tools">Tools</a> to see expected takings.</p>') +
       '<p class="muted">' + s.adult + (s.adult === 1 ? ' adult' : ' adults') + ' · ' + s.child + (s.child === 1 ? ' child' : ' children') + ' · ' + s.under5 + ' under-5' + (s.under5 === 1 ? '' : 's') + '</p>'
       : '<p class="muted">Loading…</p>') + '</section>' +
     '<section class="card"><h2>🗓️ Next meeting</h2>' + (m ? meetingSummary(m) : '<p class="muted">None booked. <a href="#meetings">Add one</a>.</p>') + '</section>' +
@@ -215,6 +226,8 @@ function calendarLink(m) {
 function calendarButton(m) {
   return '<a class="btn alt" href="' + esc(calendarLink(m)) + '" target="_blank" rel="noopener">📅 Add to Google Calendar</a>';
 }
+
+function money(n) { return "£" + (Number.isInteger(n) ? n.toLocaleString("en-GB") : n.toFixed(2)); }
 
 function meetingSummary(m) {
   return '<p class="meet-when"><b>' + esc(m.title || "Organising meeting") + '</b><br>' + fmtDate(tsMs(m.start)) +
@@ -430,6 +443,13 @@ function importForm() {
 function showTools() {
   const t = (href, icon, title, note) => '<li><a href="' + href + '"' + (href.startsWith("http") ? ' target="_blank" rel="noopener"' : '') + '><span><b>' + icon + ' ' + title + '</b><small>' + note + '</small></span><span aria-hidden="true">→</span></a></li>';
   hub.innerHTML = '<h1 class="page-title">Tools</h1>' +
+    '<form class="card form-card" id="pf"><h2>💷 Ticket prices</h2>' +
+      '<p class="muted">Paid at the gate. Under-5s are always free. While "Show prices to visitors" is off, the visitor app says "prices to be confirmed" – so you can enter a proposal first.</p>' +
+      '<div class="action-row"><div><label class="field" for="p-adult">Adult (16+) £</label><input class="input" id="p-adult" type="number" min="0" step="0.5" inputmode="decimal" required></div>' +
+      '<div><label class="field" for="p-child">Child (5–15) £</label><input class="input" id="p-child" type="number" min="0" step="0.5" inputmode="decimal" required></div></div>' +
+      '<label class="check-row"><input type="checkbox" id="p-show"><span><b>Show prices to visitors</b> – tick once they\'re agreed</span></label>' +
+      '<p class="muted" id="p-status"></p>' +
+      '<button type="submit" class="btn">Save prices</button></form>' +
     '<h2 class="admin-h">Visitor app</h2><ul class="doc-list">' +
       t("news.html", "📣", "Post news and alerts", "Write, schedule and edit news; urgent alerts on the day") +
       t("photos.html", "📷", "Approve photos", "Check visitors' photos before they appear") +
@@ -440,6 +460,31 @@ function showTools() {
       t("https://github.com/vinnie89-wq/silage-day-visitor", "🐙", "Visitor app code (GitHub)", "Where changes to the visitor app are made") +
       t("https://github.com/vinnie89-wq/silage-day-team", "🐙", "Team hub code (GitHub)", "Where changes to this app are made") +
     '</ul><p class="pad-x muted">Signed in as ' + esc(user.email) + '.</p>';
+  pricesForm();
+}
+
+async function pricesForm() {
+  const { F, db } = fb;
+  const ref = F.doc(db, "config", "prices");
+  try {
+    const snap = await F.getDoc(ref);
+    if (snap.exists() && $("p-adult")) {
+      const d = snap.data();
+      $("p-adult").value = d.adult; $("p-child").value = d.child; $("p-show").checked = !!d.show;
+      $("p-status").textContent = (d.show ? "Showing to visitors." : "Proposal – not shown to visitors yet.") +
+        (d.updatedBy ? " Last changed by " + d.updatedBy + (d.updatedAt ? ", " + fmtDate(tsMs(d.updatedAt)) : "") + "." : "");
+    }
+  } catch (e) { $("p-status").textContent = "Couldn't load prices: " + e.message; }
+  $("pf").onsubmit = async (e) => {
+    e.preventDefault();
+    const adult = Number($("p-adult").value), child = Number($("p-child").value), show = $("p-show").checked;
+    if (show && !confirm("Show " + money(adult) + " adult / " + money(child) + " child to visitors in the app now?")) return;
+    try {
+      await F.setDoc(ref, { adult, child, show, updatedBy: user.email, updatedAt: F.serverTimestamp() });
+      stats = null;
+      $("p-status").textContent = show ? "Saved – visitors now see these prices. ✓" : "Saved as a proposal – visitors still see \"to be confirmed\". ✓";
+    } catch (err) { $("p-status").textContent = "That didn't save: " + err.message; }
+  };
 }
 
 start();

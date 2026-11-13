@@ -73,3 +73,4 @@
   .team-app .header-logo, .approve-page .header-logo { height: 64px; }
   .team-app .header-date, .approve-page .header-date { font-size: 1.25rem; }
 }
+.money-line { margin: 4px 0 8px; } .money-line b { color: var(--green); font-size: 1.125rem; }
