@@ -349,7 +349,7 @@ function showActions() {
   const keep = ["a-text", "a-owner", "a-due"].map((id) => $(id) ? $(id).value : "");
   const drafts = {};
   hub.querySelectorAll("[data-comment-input]").forEach((el) => { if (el.value) drafts[el.dataset.commentInput] = el.value; });
-  const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-comment-input], [data-owner]");
+  const typing = document.activeElement && document.activeElement.matches && document.activeElement.matches("[data-comment-input], [data-owner], [data-due]");
   if (typing && hub.querySelector(".action-list")) return; // don't redraw under someone typing a comment
   const base = actions.filter((a) => actionFilter === "all" || (actionFilter === "open" ? !a.done : actionFilter === "mine" ? !a.done && mine(a) : a.done));
   const counts = {}; base.forEach((a) => { const r = ragOf(a); counts[r] = (counts[r] || 0) + 1; });
@@ -392,38 +392,45 @@ function showActions() {
 
 function actionItem(a) {
   const due = tsMs(a.due), rag = ragOf(a), st = statusOf(a), comments = Array.isArray(a.comments) ? a.comments : [];
-  const last = comments[comments.length - 1];
+  const last = comments[comments.length - 1], open = openEdits.has(a.id);
   const dueIso = due ? new Date(due - new Date(due).getTimezoneOffset() * 6e4).toISOString().slice(0, 10) : "";
-  return '<li class="action rag-' + rag + (a.done ? " done" : "") + '">' +
-    '<input type="checkbox" id="ac-' + a.id + '" data-done="' + a.id + '"' + (a.done ? " checked" : "") + ' aria-label="Complete">' +
-    '<div class="action-body"><label for="ac-' + a.id + '"><span class="action-text">' + esc(a.text) + '</span></label>' +
-      '<span class="action-meta"><span class="rag-pill rag-' + rag + '">' + RAG[rag] + '</span> ' +
-        (a.done ? '' : '<span class="status-pill st-' + st + '">' + STATUSES[st] + '</span> ') + '· ' +
-        (a.owner ? esc(a.owner) : "No owner") + (due ? ' · due ' + fmtDay(due) : '') + (comments.length ? ' · 💬 ' + comments.length : '') + '</span>' +
-      (last ? '<span class="action-last">“' + esc(last.text.length > 110 ? last.text.slice(0, 109) + "…" : last.text) + '” – ' + esc(last.name || last.by || "") + '</span>' : '') +
-      '<details class="action-edit" data-edit-id="' + a.id + '"' + (openEdits.has(a.id) ? " open" : "") + '><summary>Status, owner, date and comments</summary>' +
-        '<div class="action-row"><div><label class="field" for="as-' + a.id + '">Status</label><select class="input" id="as-' + a.id + '" data-status="' + a.id + '">' +
-          Object.entries(STATUSES).map(([k, l]) => '<option value="' + k + '"' + (k === st ? " selected" : "") + '>' + l + '</option>').join("") + '</select></div>' +
+  return '<li class="action rag-' + rag + (a.done ? " done" : "") + (open ? " open" : "") + '">' +
+    '<div class="action-body">' +
+      // Tap the title to open or close the details – it never changes the status
+      '<button type="button" class="action-toggle" data-toggle="' + a.id + '" aria-expanded="' + open + '" aria-controls="ae-' + a.id + '">' +
+        '<span class="action-text">' + esc(a.text) + '</span>' +
+        '<span class="action-meta"><span class="rag-pill rag-' + rag + '">' + RAG[rag] + '</span> · ' +
+          (a.owner ? esc(a.owner) : "No owner") + (due ? ' · due ' + fmtDay(due) : '') + (comments.length ? ' · 💬 ' + comments.length : '') + '</span>' +
+        (last && !open ? '<span class="action-last">“' + esc(last.text.length > 110 ? last.text.slice(0, 109) + "…" : last.text) + '” – ' + esc(last.name || last.by || "") + '</span>' : '') +
+        '<span class="action-chevron" aria-hidden="true">' + (open ? "▴" : "▾") + '</span>' +
+      '</button>' +
+      '<div class="action-status"><label for="as-' + a.id + '">Status</label><select class="input st-' + st + '" id="as-' + a.id + '" data-status="' + a.id + '">' +
+        Object.entries(STATUSES).map(([k, l]) => '<option value="' + k + '"' + (k === st ? " selected" : "") + '>' + l + '</option>').join("") + '</select></div>' +
+      '<div class="action-edit" id="ae-' + a.id + '"' + (open ? '' : ' hidden') + '>' +
+        '<div class="action-row"><div><label class="field" for="ao-' + a.id + '">Owner</label><input class="input" id="ao-' + a.id + '" data-owner="' + a.id + '" maxlength="60" list="owners" value="' + esc(a.owner || "") + '"></div>' +
         '<div><label class="field" for="ad-' + a.id + '">Due</label><input class="input" id="ad-' + a.id + '" type="date" data-due="' + a.id + '" value="' + dueIso + '"></div></div>' +
-        '<label class="field" for="ao-' + a.id + '">Owner</label><input class="input" id="ao-' + a.id + '" data-owner="' + a.id + '" maxlength="60" list="owners" value="' + esc(a.owner || "") + '">' +
-        (comments.length ? '<ul class="comment-list">' + comments.map((c) => '<li><span>' + esc(c.text) + '</span><small>' + esc(c.name || c.by || "") + (c.at ? ' · ' + fmtDate(c.at) : '') + '</small></li>').join("") + '</ul>' : '') +
+        '<h4 class="comments-h">Comments</h4>' +
+        (comments.length ? '<ul class="comment-list">' + comments.map((c) => '<li><span>' + esc(c.text) + '</span><small>' + esc(c.name || c.by || "") + (c.at ? ' · ' + fmtDate(c.at) : '') + '</small></li>').join("") + '</ul>' : '<p class="muted">No comments yet.</p>') +
         '<form class="comment-add" data-comment-form="' + a.id + '"><input class="input" data-comment-input="' + a.id + '" maxlength="500" placeholder="Add a comment or update…" aria-label="Comment"><button type="submit" class="btn alt small">Add</button></form>' +
         '<button type="button" class="link-btn del-link" data-del-action="' + a.id + '">Delete this action</button>' +
-      '</details></div></li>';
+      '</div></div></li>';
 }
 
-// Make the ticks, status, date, owner, comments and delete work (Actions page and the plan)
+// Make the open/close, status, date, owner, comments and delete work (Actions page and the plan)
 function wireActions(root) {
   const { F, db } = fb;
   const upd = (id, data) => F.updateDoc(F.doc(db, "actions", id), { ...data, updatedAt: F.serverTimestamp() });
-  root.querySelectorAll("[data-done]").forEach((c) => c.onchange = () => {
-    const a = actions.find((x) => x.id === c.dataset.done);
-    upd(c.dataset.done, { done: c.checked, status: c.checked ? "done" : (a && a.status && a.status !== "done" ? a.status : "todo") });
+  root.querySelectorAll("[data-toggle]").forEach((b) => b.onclick = () => {
+    const id = b.dataset.toggle, panel = document.getElementById("ae-" + id), li = b.closest(".action");
+    const open = panel.hidden;
+    panel.hidden = !open; b.setAttribute("aria-expanded", open); li.classList.toggle("open", open);
+    b.querySelector(".action-chevron").textContent = open ? "▴" : "▾";
+    const lastEl = b.querySelector(".action-last"); if (lastEl) lastEl.hidden = open;
+    if (open) openEdits.add(id); else openEdits.delete(id);
   });
   root.querySelectorAll("[data-status]").forEach((s) => s.onchange = () => upd(s.dataset.status, { status: s.value, done: s.value === "done" }));
   root.querySelectorAll("[data-due]").forEach((d) => d.onchange = () => upd(d.dataset.due, { due: d.value ? F.Timestamp.fromDate(new Date(d.value + "T12:00")) : null }));
   root.querySelectorAll("[data-owner]").forEach((o) => o.onchange = () => upd(o.dataset.owner, { owner: o.value.trim() }));
-  root.querySelectorAll("details.action-edit").forEach((d) => d.ontoggle = () => { if (d.open) openEdits.add(d.dataset.editId); else openEdits.delete(d.dataset.editId); });
   root.querySelectorAll("[data-comment-form]").forEach((f) => f.onsubmit = async (e) => {
     e.preventDefault();
     const id = f.dataset.commentForm, input = f.querySelector("input"), text = input.value.trim();
