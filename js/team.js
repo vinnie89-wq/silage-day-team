@@ -352,16 +352,24 @@ function docForm(d) {
 // One-off import: paste the list (JSON) that came with this update
 function importForm() {
   $("doc-form").innerHTML = '<form class="card form-card" id="if"><h2>Import</h2>' +
-    '<p>Paste the contents of the <b>team-hub-import.json</b> file here. It adds the documents and meetings to the hub (anything already there is kept).</p>' +
-    '<label class="field" for="imp">Import text</label><textarea class="input" id="imp" rows="6" spellcheck="false"></textarea>' +
+    '<p>Choose the <b>team-hub-import.json</b> file – or paste its contents in the box. It adds the documents and meetings to the hub (anything already there is kept).</p>' +
+    '<label class="field" for="imp-file">The file</label><input class="input" id="imp-file" type="file" accept=".json,application/json,text/plain">' +
+    '<label class="field" for="imp">…or paste the text</label><textarea class="input" id="imp" rows="6" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>' +
     '<p class="form-error" id="if-err" hidden></p><button type="submit" class="btn">Import</button>' +
     '<button type="button" class="btn alt" id="if-cancel">Cancel</button></form>';
   $("if-cancel").onclick = () => { $("doc-form").innerHTML = ""; };
   $("if").onsubmit = async (e) => {
     e.preventDefault();
     const err = (t) => { $("if-err").textContent = t; $("if-err").hidden = false; };
+    let text = $("imp").value;
+    const file = $("imp-file").files[0];
+    if (file) text = await file.text();
+    // Forgive the usual copy-and-paste damage: curly "smart" quotes, stray text around it
+    text = text.replace(/^\uFEFF/, "").replace(/[\u201C\u201D\u201E\u2033]/g, '"').replace(/[\u2018\u2019]/g, "'");
+    const first = text.indexOf("{"), last = text.lastIndexOf("}");
     let data;
-    try { data = JSON.parse($("imp").value); } catch (x) { return err("That isn't valid import text – paste the whole file."); }
+    try { data = JSON.parse(text.slice(first, last + 1)); }
+    catch (x) { return err(file ? "That file isn't the import file – choose team-hub-import.json." : "That isn't valid import text. Easiest fix: use 'The file' above and choose team-hub-import.json instead of pasting."); }
     const { F, db } = fb;
     const batch = F.writeBatch(db);
     let order = docs.length ? Math.max(...docs.map((x) => x.order || 0)) : 0, n = 0, m = 0;
