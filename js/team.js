@@ -187,6 +187,13 @@ function showDashboard() {
   $("refresh").onclick = () => { stats = null; statsAt = 0; showDashboard(); };
 }
 
+// "meet.google.com/abc" → "https://meet.google.com/abc" (people rarely type the https://)
+function fixLink(v) {
+  v = (v || "").trim();
+  if (!v) return "";
+  return /^[a-z][a-z0-9+.-]*:/i.test(v) ? v : "https://" + v.replace(/^\/+/, "");
+}
+
 /* ---------- Add to Google Calendar ----------
    Opens Google Calendar (in the signed-in organiser account) with the
    meeting filled in. There, click "Add Google Meet video conferencing"
@@ -250,8 +257,8 @@ function meetingForm(m) {
     '<label class="field" for="m-title">Title</label><input class="input" id="m-title" maxlength="120" value="' + esc(m ? m.title : "Organising meeting") + '">' +
     '<label class="field" for="m-start">Starts</label><input class="input" id="m-start" type="datetime-local" required value="' + toInput(m && tsMs(m.start), true) + '">' +
     '<label class="field" for="m-end">Ends</label><input class="input" id="m-end" type="datetime-local" value="' + toInput(m && tsMs(m.end), true) + '">' +
-    '<label class="field" for="m-link">Meeting link (Zoom, Teams, Meet…)</label><input class="input" id="m-link" type="url" value="' + esc(m ? m.link : "") + '">' +
-    '<label class="field" for="m-agenda">Agenda and papers link</label><input class="input" id="m-agenda" type="url" value="' + esc(m ? m.agendaUrl : "") + '">' +
+    '<label class="field" for="m-link">Meeting link (Zoom, Teams, Meet…)</label><input class="input" id="m-link" type="text" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="meet.google.com/abc-defg-hij" value="' + esc(m ? m.link : "") + '">' +
+    '<label class="field" for="m-agenda">Agenda and papers link</label><input class="input" id="m-agenda" type="text" inputmode="url" autocapitalize="off" spellcheck="false" value="' + esc(m ? m.agendaUrl : "") + '">' +
     '<label class="field" for="m-guests">Who to invite (email addresses)</label>' +
     '<p class="field-hint">Separated by commas. Used by "Add to Google Calendar" to send the invites.</p>' +
     '<input class="input" id="m-guests" type="text" inputmode="email" autocapitalize="off" spellcheck="false" maxlength="1000" value="' + esc(m ? m.guests : "") + '">' +
@@ -271,7 +278,7 @@ function meetingForm(m) {
     const data = {
       title: $("m-title").value.trim(), start: F.Timestamp.fromDate(new Date(start)),
       end: end ? F.Timestamp.fromDate(new Date(end)) : null,
-      link: $("m-link").value.trim(), agendaUrl: $("m-agenda").value.trim(), notes: $("m-notes").value.trim(),
+      link: fixLink($("m-link").value), agendaUrl: fixLink($("m-agenda").value), notes: $("m-notes").value.trim(),
       guests: $("m-guests").value.trim(),
       updatedAt: F.serverTimestamp()
     };
@@ -360,7 +367,7 @@ function docForm(d) {
   $("doc-form").innerHTML = '<form class="card form-card" id="df"><h2>' + (d ? "Edit document" : "Add a document") + '</h2>' +
     '<label class="field" for="d-title">Title</label><input class="input" id="d-title" required maxlength="120" value="' + esc(d ? d.title : "") + '">' +
     '<label class="field" for="d-note">Short description (optional)</label><input class="input" id="d-note" maxlength="200" value="' + esc(d ? d.note : "") + '">' +
-    '<label class="field" for="d-url">Link</label><input class="input" id="d-url" type="url" required value="' + esc(d ? d.url : "") + '">' +
+    '<label class="field" for="d-url">Link</label><input class="input" id="d-url" type="text" inputmode="url" autocapitalize="off" spellcheck="false" required value="' + esc(d ? d.url : "") + '">' +
     '<label class="field" for="d-section">Section</label><select class="input" id="d-section">' + SECTIONS.map((s) => '<option' + (d && d.section === s ? " selected" : "") + '>' + s + '</option>').join("") + '</select>' +
     '<label class="field" for="d-access">Who can open it</label><select class="input" id="d-access">' + Object.entries(ACCESS).map(([k, v]) => '<option value="' + k + '"' + (d && d.access === k ? " selected" : "") + '>' + v[0] + ' – ' + v[1] + '</option>').join("") + '</select>' +
     '<button type="submit" class="btn">Save</button>' + (d ? '<button type="button" class="btn alt" id="df-del">Remove from list</button>' : '') +
@@ -371,7 +378,7 @@ function docForm(d) {
   $("df").onsubmit = async (e) => {
     e.preventDefault();
     const { F, db } = fb;
-    const data = { title: $("d-title").value.trim(), note: $("d-note").value.trim(), url: $("d-url").value.trim(),
+    const data = { title: $("d-title").value.trim(), note: $("d-note").value.trim(), url: fixLink($("d-url").value),
       section: $("d-section").value, access: $("d-access").value };
     if (d) await F.updateDoc(F.doc(db, "teamDocs", d.id), data);
     else await F.addDoc(F.collection(db, "teamDocs"), Object.assign(data, { order: docs.length ? Math.max(...docs.map((x) => x.order || 0)) + 1 : 1 }));
