@@ -24,7 +24,7 @@ document links, names or figures. Those are all in Firebase.
 
 | Page | What it does |
 |---|---|
-| `index.html` | **Dashboard** (registrations, payments, next meeting, actions, photos waiting, news), **Meetings**, **Actions** (shared tracker), **Documents** (plan links; Import), **Tools** |
+| `index.html` | **Dashboard** (with the **Plan**: the critical path and Gantt chart, worked out live by `js/gantt.js` from the `gantt` tasks – tap a task for its dates, what it waits for, its actions; mark it done or change its duration and the plan recalculates), (registrations, payments, next meeting, actions, photos waiting, news), **Meetings**, **Actions** (shared tracker), **Documents** (plan links; Import), **Tools** |
 | `news.html` | Post news and urgent alerts in English and Welsh – now or scheduled – with up to 4 photos and a YouTube video. **Translate into Welsh** fills in the Welsh: with a Google Cloud Translation key (set up at the bottom of the page; kept in `teamSecrets`, organisers only) it's automatic, otherwise it opens Google Translate. Machine Welsh should be checked by a Welsh speaker. |
 | `photos.html` | Approve or reject visitors' photos before they appear in the visitor app. |
 | `facts.html` | **Key facts** – the date, hours, venue, charities, entry prices and raffle details the visitor app shows. Each box carries its ID from the *Key assumptions and details* register (the master copy): change the register first, then here, and every page of the visitor app updates. Saved as `config/facts`. |
