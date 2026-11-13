@@ -1,4 +1,5 @@
 /* Team hub – extra styles on top of ../css/style.css */
+[hidden] { display: none !important; } /* make sure hidden buttons stay hidden */
 .team-app .site-header .header-row { position: relative; }
 .hb-signout { margin-left: auto; border: 1px solid var(--line); background: #fff; color: var(--green); border-radius: 8px; padding: 6px 10px; font: 700 0.8125rem var(--font); cursor: pointer; }
 #hub { padding-bottom: 12px; }
