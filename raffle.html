@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Raffle – Pembrokeshire Silage Day (organisers)</title>
+  <link rel="icon" href="images/logo.png">
+  <link rel="stylesheet" href="css/style.css?v=1">
+  <link rel="stylesheet" href="css/team.css?v=5">
+  <!--
+    ORGANISERS ONLY. Part of the Team hub.
+    ⚖ Incidental lottery (Gambling Act 2005): tickets are sold on paper,
+    at the show, on the day only. This page does NOT sell tickets. It keeps:
+      Setup   – what visitors see (price, draw time, where, charity)
+      Prizes  – list, donor, what was spent on bought prizes
+      Sales   – the ticket numbers sold (e.g. Pink 1–250) and takings
+      Draw    – picks a winner from the numbers sold, records who drew it
+      Record  – the raffle record: takings, costs, prize spend, the limits
+    Visitors see a copy in Firebase config/raffle (prizes + results only).
+  -->
+</head>
+<body>
+<div class="app approve-page">
+  <header class="site-header">
+    <div class="header-row">
+      <img class="header-logo" src="images/logo.png" alt="Pembrokeshire Silage Day" width="116" height="58">
+      <a class="back-hub" href="index.html" aria-label="Back to the Team hub">← Hub</a>
+      <p class="header-date">Team hub<br><span>Raffle</span></p>
+    </div>
+  </header>
+  <main>
+    <h1 class="page-title">🎁 Raffle</h1>
+
+    <section class="card" id="signin-card">
+      <p id="who">Sign in with your organiser Google account.</p>
+      <button type="button" class="btn" id="signin">Sign in with Google</button>
+      <button type="button" class="btn alt" id="signout" hidden>Sign out</button>
+    </section>
+    <p class="map-message" id="msg" hidden></p>
+
+    <div id="raffle" hidden>
+      <nav class="rf-tabs" aria-label="Raffle sections">
+        <a href="#setup">Setup</a><a href="#prizes">Prizes</a><a href="#sales">Sales</a><a href="#draw">Draw</a><a href="#record">Record</a>
+      </nav>
+      <div id="tab"></div>
+    </div>
+  </main>
+</div>
+<script src="js/firebase-config.js?v=1"></script>
+<script src="js/firebase.js?v=1"></script>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const msg = (text) => { $("msg").hidden = !text; $("msg").textContent = text || ""; };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (n) => "£" + (Number(n) || 0).toLocaleString("en-GB", { minimumFractionDigits: Number.isInteger(Number(n)) ? 0 : 2, maximumFractionDigits: 2 });
+const tsMs = (v) => v && v.toMillis ? v.toMillis() : (typeof v === "number" ? v : 0);
+const fmtTime = (v) => { const ms = tsMs(v); return ms ? new Date(ms).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "just now"; };
+
+// The legal limits for an incidental lottery (Gambling Commission)
+const PRIZE_LIMIT = 500;   // max £ of ticket money spent on prizes (donated prizes don't count)
+const COSTS_LIMIT = 100;   // max £ of ticket money spent on running costs (tickets, drum…)
+
+const COLOURS = ["", "pink", "blue", "green", "yellow", "white", "orange", "purple", "red"];
+const SWATCH = { pink: "#f4a6c6", blue: "#8cc1f0", green: "#9fd69a", yellow: "#f6e27a", white: "#ffffff", orange: "#f7b56b", purple: "#c3a5e8", red: "#ef8f8f" };
+const CY = { pink: "Pinc", blue: "Glas", green: "Gwyrdd", yellow: "Melyn", white: "Gwyn", orange: "Oren", purple: "Porffor", red: "Coch" };
+const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : "";
+const label = (c, n) => (c ? cap(c) + " " : "") + n;
+const labelCy = (c, n) => (c ? CY[c] + " " : "") + n;
+const swatch = (c) => c ? '<span class="rf-swatch" style="background:' + SWATCH[c] + '"></span>' : "";
+const colourSelect = (id, value) => '<select class="input" id="' + id + '">' + COLOURS.map((c) => '<option value="' + c + '"' + (c === (value || "") ? " selected" : "") + '>' + (c ? cap(c) : "No colour") + '</option>').join("") + '</select>';
+
+let fb, user;
+let settings = {}, prizes = [], sales = [], costs = [], draws = [];
+let lastDraw = null; // id of the draw just made, to show it big
+
+if (!firebaseConfigured()) {
+  msg("Firebase isn't set up yet – fill in js/firebase-config.js first (see README).");
+  $("signin").disabled = true;
+} else {
+  fb = await getFirebase();
+  const { auth, A } = fb;
+  $("signin").onclick = () => A.signInWithPopup(auth, new A.GoogleAuthProvider()).catch((e) => msg("Sign-in didn't work: " + e.message));
+  $("signout").onclick = () => A.signOut(auth);
+  let stops = [];
+  A.onAuthStateChanged(auth, (u) => {
+    user = u && !u.isAnonymous ? u : null;
+    $("signin").hidden = !!user;
+    $("signout").hidden = !user;
+    $("raffle").hidden = !user;
+    $("who").textContent = user ? "Signed in as " + user.email : "Sign in with your organiser Google account.";
+    stops.forEach((s) => s()); stops = [];
+    if (user) stops = listen();
+  });
+}
+
+/* ---------- Listening ---------- */
+function listen() {
+  const { F, db } = fb;
+  const fail = (e) => msg(e.code === "permission-denied" ? "This Google account isn't on the organisers' list, or the raffle rules haven't been published yet (see the visitor app's firebase/firestore.rules)." : "Couldn't load: " + e.message);
+  const col = (name, set) => F.onSnapshot(F.collection(db, name), (snap) => { set(snap.docs.map((d) => ({ id: d.id, ...d.data() }))); changed(); }, fail);
+  return [
+    F.onSnapshot(F.doc(db, "config", "raffle"), (snap) => { settings = snap.exists() ? snap.data() : {}; changed(); }, fail),
+    col("rafflePrizes", (x) => prizes = x.sort((a, b) => (a.order || 0) - (b.order || 0))),
+    col("raffleSales", (x) => sales = x.sort((a, b) => tsMs(a.at) - tsMs(b.at))),
+    col("raffleCosts", (x) => costs = x),
+    col("raffleDraws", (x) => draws = x.sort((a, b) => tsMs(a.at) - tsMs(b.at)))
+  ];
+}
+
+let drawTimer = null, pubTimer = null;
+function changed() {
+  clearTimeout(drawTimer); drawTimer = setTimeout(show, 50);
+  clearTimeout(pubTimer); pubTimer = setTimeout(publish, 800);
+}
+window.addEventListener("hashchange", show);
+
+/* ---------- What visitors see (config/raffle) ----------
+   Rebuilt from the prizes and draws whenever they change. Every organiser's
+   phone works it out the same way, so it only writes when something differs. */
+const live = () => draws.filter((d) => d.status !== "void");
+function publicCopy() {
+  const order = (pid) => { const p = prizes.find((x) => x.id === pid); return p ? p.order || 0 : 999; };
+  return {
+    prizes: prizes.map((p) => ({ id: p.id, name: p.name || "", donor: p.donor || "" })),
+    results: live().slice().sort((a, b) => order(a.prizeId) - order(b.prizeId)).map((d) => {
+      const r = { pid: d.prizeId, p: (prizes.find((x) => x.id === d.prizeId) || {}).name || d.prizeName || "", c: d.c || "", n: d.n, claimed: d.status === "claimed" };
+      if (d.publicName) r.name = d.publicName; // only filled in when the winner agreed
+      return r;
+    })
+  };
+}
+async function publish() {
+  if (!user) return;
+  const next = publicCopy();
+  if (JSON.stringify(next.prizes) === JSON.stringify(settings.prizes || []) &&
+      JSON.stringify(next.results) === JSON.stringify(settings.results || [])) return;
+  const { F, db } = fb;
+  try {
+    await F.setDoc(F.doc(db, "config", "raffle"), { show: !!settings.show, ...next, updatedBy: user.email, updatedAt: F.serverTimestamp() }, { merge: true });
+  } catch (e) { msg("Couldn't update the visitor app: " + e.message); }
+}
+
+/* ---------- Sums ---------- */
+function soldTickets() {
+  // Every sold number, as "colour:number"
+  const set = new Set();
+  sales.forEach((s) => { for (let n = s.from; n <= s.to; n++) set.add((s.c || "") + ":" + n); });
+  return set;
+}
+function totals() {
+  const takings = sales.reduce((t, s) => t + (Number(s.amount) || 0), 0);
+  const costTotal = costs.reduce((t, c) => t + (Number(c.amount) || 0), 0);
+  const prizeSpend = prizes.reduce((t, p) => t + (p.bought ? Number(p.cost) || 0 : 0), 0);
+  const tickets = sales.reduce((t, s) => t + (s.to - s.from + 1), 0);
+  return { takings, costTotal, prizeSpend, tickets, net: takings - costTotal - prizeSpend };
+}
+
+/* ---------- Tabs ---------- */
+function show() {
+  if (!user) return;
+  let tab = location.hash.slice(1);
+  if (!["setup", "prizes", "sales", "draw", "record"].includes(tab)) tab = draws.length || sales.length ? "draw" : "setup";
+  document.querySelectorAll(".rf-tabs a").forEach((a) => a.setAttribute("aria-current", a.getAttribute("href") === "#" + tab ? "page" : "false"));
+  // Don't redraw a form someone is typing in
+  const typing = document.activeElement && $("tab").contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if (typing && $("tab").dataset.tab === tab) return;
+  $("tab").dataset.tab = tab;
+  ({ setup: showSetup, prizes: showPrizes, sales: showSales, draw: showDraw, record: showRecord })[tab]();
+}
+
+function limitsCard() {
+  const t = totals();
+  const tile = (n, l, warn) => '<div class="dash-tile' + (warn ? " warn" : "") + '"><b>' + n + '</b><span>' + l + '</span></div>';
+  return '<div class="dash-grid">' +
+    tile(t.tickets, "tickets sold") + tile(money(t.takings), "taken") +
+    tile(money(t.prizeSpend), "of £" + PRIZE_LIMIT + " on prizes", t.prizeSpend > PRIZE_LIMIT) +
+    tile(money(t.costTotal), "of £" + COSTS_LIMIT + " costs", t.costTotal > COSTS_LIMIT) +
+    tile(money(t.net), "to charity", t.net < 0) +
+  '</div>' +
+  (t.prizeSpend > PRIZE_LIMIT ? '<p class="form-error">⚠ More than £' + PRIZE_LIMIT + ' of ticket money on prizes isn\'t allowed. Use donated prizes, or pay the extra from elsewhere.</p>' : '') +
+  (t.costTotal > COSTS_LIMIT ? '<p class="form-error">⚠ Only £' + COSTS_LIMIT + ' of ticket money can go on running costs.</p>' : '');
+}
+
+/* ---------- Setup ---------- */
+function showSetup() {
+  const s = settings;
+  $("tab").innerHTML =
+    '<form class="card form-card" id="sf"><h2>What visitors see</h2>' +
+      '<p class="muted">The Raffle page in the visitor app. Tickets are sold <b>only on paper at the show, on the day</b> – the app never sells them.</p>' +
+      '<div class="action-row"><div><label class="field" for="s-price">Price £</label><input class="input" id="s-price" type="number" min="0" step="0.5" inputmode="decimal" value="' + esc(s.price ?? "") + '"></div>' +
+      '<div><label class="field" for="s-strip">Tickets per strip</label><input class="input" id="s-strip" type="number" min="1" step="1" inputmode="numeric" value="' + esc(s.perStrip || 5) + '"></div></div>' +
+      '<p class="field-hint">e.g. £2 for a strip of 5. All tickets must cost the same.</p>' +
+      '<label class="field" for="s-time">Draw time</label><input class="input" id="s-time" type="time" value="' + esc(s.drawTime || "16:30") + '">' +
+      '<label class="field" for="s-whereEn">Where the raffle stand is – English</label><input class="input" id="s-whereEn" maxlength="120" value="' + esc(s.whereEn || "") + '" placeholder="e.g. Next to the main stand">' +
+      '<label class="field" for="s-whereCy">… Cymraeg</label><input class="input" id="s-whereCy" maxlength="120" value="' + esc(s.whereCy || "") + '">' +
+      '<label class="field" for="s-charityEn">In aid of – English</label><input class="input" id="s-charityEn" maxlength="120" value="' + esc(s.charityEn || "") + '">' +
+      '<label class="field" for="s-charityCy">… Cymraeg</label><input class="input" id="s-charityCy" maxlength="120" value="' + esc(s.charityCy || "") + '">' +
+      '<label class="field" for="s-weeks">Unclaimed prizes kept for (weeks)</label><input class="input" id="s-weeks" type="number" min="0" step="1" value="' + esc(s.unclaimedWeeks ?? 4) + '">' +
+      '<label class="check-row"><input type="checkbox" id="s-show"' + (s.show ? " checked" : "") + '><span><b>Show the raffle in the visitor app</b> – until then visitors see "details coming soon"</span></label>' +
+      '<p class="muted" id="s-status">' + (s.updatedBy ? "Last changed by " + esc(s.updatedBy) + ", " + fmtTime(s.updatedAt) + "." : "") + '</p>' +
+      '<button type="submit" class="btn">Save</button></form>';
+  $("sf").onsubmit = async (e) => {
+    e.preventDefault();
+    const { F, db } = fb;
+    const data = {
+      price: Number($("s-price").value) || 0, perStrip: Math.max(1, Math.round(Number($("s-strip").value) || 1)),
+      drawTime: $("s-time").value, whereEn: $("s-whereEn").value.trim(), whereCy: $("s-whereCy").value.trim(),
+      charityEn: $("s-charityEn").value.trim(), charityCy: $("s-charityCy").value.trim(),
+      unclaimedWeeks: Math.max(0, Math.round(Number($("s-weeks").value) || 0)), show: $("s-show").checked,
+      ...publicCopy(), updatedBy: user.email, updatedAt: F.serverTimestamp()
+    };
+    try { await F.setDoc(F.doc(db, "config", "raffle"), data, { merge: true }); $("s-status").textContent = data.show ? "Saved – showing in the visitor app. ✓" : "Saved – not shown to visitors yet. ✓"; }
+    catch (err) { $("s-status").textContent = "That didn't save: " + err.message; }
+  };
+}
+
+/* ---------- Prizes ---------- */
+let editingPrize = null;
+function showPrizes() {
+  const p = editingPrize ? prizes.find((x) => x.id === editingPrize) || {} : {};
+  const won = (id) => live().find((d) => d.prizeId === id);
+  $("tab").innerHTML = limitsCard() +
+    '<form class="card form-card" id="pf"><h2>' + (editingPrize ? "Edit prize" : "Add a prize") + '</h2>' +
+      '<label class="field" for="p-name">Prize</label><input class="input" id="p-name" maxlength="120" required value="' + esc(p.name || "") + '" placeholder="e.g. Hamper from the farm shop">' +
+      '<label class="field" for="p-donor">Donated by (shown to visitors – leave empty if they\'d rather not)</label><input class="input" id="p-donor" maxlength="120" value="' + esc(p.donor || "") + '">' +
+      '<label class="check-row"><input type="checkbox" id="p-bought"' + (p.bought ? " checked" : "") + '><span><b>Bought with raffle money</b> – counts towards the £' + PRIZE_LIMIT + ' limit</span></label>' +
+      '<div class="action-row"><div><label class="field" for="p-cost">Cost £ (if bought)</label><input class="input" id="p-cost" type="number" min="0" step="0.01" inputmode="decimal" value="' + esc(p.cost ?? "") + '"></div>' +
+      '<div><label class="field" for="p-order">Draw order</label><input class="input" id="p-order" type="number" min="1" step="1" value="' + esc(p.order || prizes.length + 1) + '"></div></div>' +
+      '<p class="field-hint">Draw order 1 is drawn first. Many raffles draw the smaller prizes first and the star prize last.</p>' +
+      '<p class="field-hint">Alcohol prizes: check the farm\'s premises licence first.</p>' +
+      '<button type="submit" class="btn">' + (editingPrize ? "Save prize" : "Add prize") + '</button>' +
+      (editingPrize ? '<button type="button" class="btn alt" id="p-cancel">Cancel editing</button>' : '') +
+    '</form>' +
+    '<h2 class="admin-h">Prizes (' + prizes.length + ')</h2>' +
+    (prizes.length ? '<ul class="action-list">' + prizes.map((x) => {
+      const d = won(x.id);
+      return '<li class="action"><span class="rf-order">' + (x.order || "–") + '</span><label><span class="action-text">' + esc(x.name) + '</span>' +
+        '<span class="action-meta">' + (x.donor ? "Donated by " + esc(x.donor) : "No donor shown") + (x.bought ? " · bought " + money(x.cost) : "") +
+        (d ? " · <b>won by " + esc(label(d.c, d.n)) + "</b>" : "") + '</span></label>' +
+        '<button type="button" class="btn alt small" data-edit="' + x.id + '">Edit</button>' +
+        (d ? '' : '<button type="button" class="btn alt small" data-del="' + x.id + '">Delete</button>') + '</li>';
+    }).join("") + '</ul>' : '<p class="pad-x muted">No prizes yet.</p>');
+
+  $("pf").onsubmit = async (e) => {
+    e.preventDefault();
+    const { F, db } = fb;
+    const data = { name: $("p-name").value.trim(), donor: $("p-donor").value.trim(), bought: $("p-bought").checked,
+      cost: $("p-bought").checked ? Number($("p-cost").value) || 0 : 0, order: Math.round(Number($("p-order").value) || prizes.length + 1),
+      updatedBy: user.email, updatedAt: F.serverTimestamp() };
+    if (!data.name) return;
+    try {
+      if (editingPrize) await F.updateDoc(F.doc(db, "rafflePrizes", editingPrize), data);
+      else await F.addDoc(F.collection(db, "rafflePrizes"), data);
+      editingPrize = null; document.activeElement.blur(); showPrizes();
+    } catch (err) { msg("That didn't save: " + err.message); }
+  };
+  if ($("p-cancel")) $("p-cancel").onclick = () => { editingPrize = null; showPrizes(); };
+  $("tab").querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => { editingPrize = b.dataset.edit; showPrizes(); $("pf").scrollIntoView({ behavior: "smooth" }); });
+  $("tab").querySelectorAll("[data-del]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Delete this prize?")) return;
+    try { await fb.F.deleteDoc(fb.F.doc(fb.db, "rafflePrizes", b.dataset.del)); } catch (err) { msg("That didn't work: " + err.message); }
+  });
+}
+
+/* ---------- Sales and costs ---------- */
+function showSales() {
+  const price = Number(settings.price) || 0, per = Number(settings.perStrip) || 1;
+  $("tab").innerHTML = limitsCard() +
+    '<form class="card form-card" id="slf"><h2>Log tickets sold</h2>' +
+      '<p class="muted">Paper tickets only, sold at the stand on the day. Log each book or batch as it\'s sold – e.g. <b>Pink 1 to 250</b>. <b>The draw only picks from numbers logged here</b>, so log everything before the draw.</p>' +
+      '<label class="field" for="sl-c">Colour</label>' + colourSelect("sl-c", localStorage.getItem("rf-last-colour")) +
+      '<div class="action-row"><div><label class="field" for="sl-from">From number</label><input class="input" id="sl-from" type="number" min="0" step="1" inputmode="numeric" required></div>' +
+      '<div><label class="field" for="sl-to">To number</label><input class="input" id="sl-to" type="number" min="0" step="1" inputmode="numeric" required></div></div>' +
+      '<div class="action-row"><div><label class="field" for="sl-amount">Money taken £</label><input class="input" id="sl-amount" type="number" min="0" step="0.01" inputmode="decimal" required></div>' +
+      '<div><label class="field" for="sl-who">Sold by (optional)</label><input class="input" id="sl-who" maxlength="60"></div></div>' +
+      '<p class="field-hint" id="sl-hint">' + (price ? "At " + money(price) + " a strip of " + per + "." : "Set the price in Setup to fill in the money automatically.") + '</p>' +
+      '<p class="form-error" id="sl-err" hidden></p>' +
+      '<button type="submit" class="btn">Log sale</button></form>' +
+    '<h2 class="admin-h">Sold (' + sales.length + ')</h2>' +
+    (sales.length ? '<ul class="action-list">' + sales.map((s) => '<li class="action"><label><span class="action-text">' + swatch(s.c) + esc(label(s.c, s.from)) + ' – ' + s.to + ' <small>(' + (s.to - s.from + 1) + ' tickets)</small></span>' +
+      '<span class="action-meta">' + money(s.amount) + (s.who ? " · " + esc(s.who) : "") + " · " + fmtTime(s.at) + '</span></label>' +
+      '<button type="button" class="btn alt small" data-del-sale="' + s.id + '">Delete</button></li>').join("") + '</ul>' : '<p class="pad-x muted">Nothing logged yet.</p>') +
+    '<form class="card form-card" id="cf"><h2>Running costs</h2>' +
+      '<p class="muted">Paid from the ticket money – e.g. printing tickets, hiring a drum. Max £' + COSTS_LIMIT + '.</p>' +
+      '<div class="action-row"><div><label class="field" for="c-what">What</label><input class="input" id="c-what" maxlength="100" required></div>' +
+      '<div><label class="field" for="c-amount">£</label><input class="input" id="c-amount" type="number" min="0" step="0.01" inputmode="decimal" required></div></div>' +
+      '<button type="submit" class="btn">Add cost</button></form>' +
+    (costs.length ? '<ul class="action-list">' + costs.map((c) => '<li class="action"><label><span class="action-text">' + esc(c.what) + '</span><span class="action-meta">' + money(c.amount) + '</span></label>' +
+      '<button type="button" class="btn alt small" data-del-cost="' + c.id + '">Delete</button></li>').join("") + '</ul>' : '');
+
+  const autoAmount = () => {
+    const from = Number($("sl-from").value), to = Number($("sl-to").value);
+    if (!price || $("sl-from").value === "" || $("sl-to").value === "" || to < from) return;
+    const count = to - from + 1;
+    $("sl-amount").value = (Math.round(count / per * price * 100) / 100).toString();
+    $("sl-hint").textContent = count + " tickets = " + (count / per) + " strips at " + money(price) + (count % per ? " – not whole strips, check the money" : "") + ".";
+  };
+  $("sl-from").oninput = autoAmount; $("sl-to").oninput = autoAmount;
+  $("slf").onsubmit = async (e) => {
+    e.preventDefault();
+    const err = (t) => { $("sl-err").textContent = t; $("sl-err").hidden = false; };
+    const c = $("sl-c").value, from = Number($("sl-from").value), to = Number($("sl-to").value), amount = Number($("sl-amount").value);
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from) return err("'To' must be the same as or bigger than 'From'.");
+    if (to - from >= 20000) return err("That's more than 20,000 tickets – check the numbers.");
+    const clash = sales.find((s) => (s.c || "") === c && from <= s.to && to >= s.from);
+    if (clash) return err("Those numbers overlap " + label(clash.c, clash.from) + "–" + clash.to + ", already logged.");
+    try {
+      localStorage.setItem("rf-last-colour", c);
+      await fb.F.addDoc(fb.F.collection(fb.db, "raffleSales"), { c, from, to, amount, who: $("sl-who").value.trim(), by: user.email, at: fb.F.serverTimestamp() });
+      document.activeElement.blur(); showSales();
+    } catch (x) { err("That didn't save: " + x.message); }
+  };
+  $("cf").onsubmit = async (e) => {
+    e.preventDefault();
+    try { await fb.F.addDoc(fb.F.collection(fb.db, "raffleCosts"), { what: $("c-what").value.trim(), amount: Number($("c-amount").value) || 0, by: user.email, at: fb.F.serverTimestamp() }); document.activeElement.blur(); showSales(); }
+    catch (x) { msg("That didn't save: " + x.message); }
+  };
+  $("tab").querySelectorAll("[data-del-sale]").forEach((b) => b.onclick = async () => {
+    if (draws.length && !confirm("The draw has started. Deleting sold numbers now could make an earlier draw look wrong. Delete anyway?")) return;
+    if (!draws.length && !confirm("Delete this sale?")) return;
+    try { await fb.F.deleteDoc(fb.F.doc(fb.db, "raffleSales", b.dataset.delSale)); } catch (x) { msg("That didn't work: " + x.message); }
+  });
+  $("tab").querySelectorAll("[data-del-cost]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Delete this cost?")) return;
+    try { await fb.F.deleteDoc(fb.F.doc(fb.db, "raffleCosts", b.dataset.delCost)); } catch (x) { msg("That didn't work: " + x.message); }
+  });
+}
+
+/* ---------- The draw ---------- */
+// A fair random pick: the browser's secure random numbers, with no bias
+function randomIndex(n) {
+  const max = Math.floor(0x100000000 / n) * n, a = new Uint32Array(1);
+  do { crypto.getRandomValues(a); } while (a[0] >= max);
+  return a[0] % n;
+}
+function pool() {
+  // Sold numbers that haven't been drawn before (a voided draw's ticket stays out too)
+  const drawn = new Set(draws.map((d) => (d.c || "") + ":" + d.n));
+  return [...soldTickets()].filter((k) => !drawn.has(k));
+}
+const undrawnPrizes = () => prizes.filter((p) => !live().some((d) => d.prizeId === p.id));
+
+function showDraw() {
+  const left = undrawnPrizes(), remaining = pool();
+  const drawers = JSON.parse(localStorage.getItem("rf-drawers") || '["",""]');
+  const big = lastDraw && draws.find((d) => d.id === lastDraw);
+  $("tab").innerHTML =
+    (big ? '<section class="card rf-big"><p class="muted">' + esc((prizes.find((p) => p.id === big.prizeId) || {}).name || big.prizeName) + '</p>' +
+      '<p class="rf-big-number">' + swatch(big.c) + esc(label(big.c, big.n)) + '</p><p class="muted">Drawn by ' + esc((big.drawnBy || []).join(" and ")) + ' · it\'s in the visitor app now</p></section>' : '') +
+    (!sales.length ? '<p class="map-message">Log the tickets sold first (<a href="#sales">Sales</a>) – the app only draws from numbers that were sold.</p>' : '') +
+    (!prizes.length ? '<p class="map-message">Add the prizes first (<a href="#prizes">Prizes</a>).</p>' : '') +
+    (left.length ? '<section class="card form-card"><h2>Draw the next prize</h2>' +
+      '<label class="field" for="d-prize">Prize</label><select class="input" id="d-prize">' + left.map((p) => '<option value="' + p.id + '">' + (p.order || "") + '. ' + esc(p.name) + '</option>').join("") + '</select>' +
+      '<p class="field-hint">' + (prizes.length - left.length) + ' of ' + prizes.length + ' prizes drawn · ' + remaining.length + ' tickets still in the draw.</p>' +
+      '<div class="action-row"><div><label class="field" for="d-by1">Drawn by</label><input class="input" id="d-by1" maxlength="60" value="' + esc(drawers[0]) + '"></div>' +
+      '<div><label class="field" for="d-by2">… and</label><input class="input" id="d-by2" maxlength="60" value="' + esc(drawers[1]) + '"></div></div>' +
+      '<p class="field-hint">Two people do the draw, in public.</p>' +
+      '<p class="form-error" id="d-err" hidden></p>' +
+      '<button type="button" class="btn rf-draw-btn" id="d-app"' + (remaining.length ? "" : " disabled") + '>🎲 Draw a ticket with the app</button>' +
+      '<details class="rf-manual"><summary>Or: enter a ticket pulled from the drum</summary>' +
+        '<div class="action-row"><div><label class="field" for="d-c">Colour</label>' + colourSelect("d-c", localStorage.getItem("rf-last-colour")) + '</div>' +
+        '<div><label class="field" for="d-n">Number</label><input class="input" id="d-n" type="number" min="0" step="1" inputmode="numeric"></div></div>' +
+        '<button type="button" class="btn alt" id="d-manual">Record this ticket</button></details>' +
+    '</section>' : (prizes.length ? '<section class="card"><h2>All prizes drawn 🎉</h2><p>Post the results as an alert below, then mark prizes as collected.</p></section>' : '')) +
+    (live().length ? '<section class="card"><h2>Tell visitors</h2><p class="muted">Results show on the visitor app\'s Raffle page straight away, and anyone who added a winning number gets a "You\'ve won!" banner. This also sends everyone an urgent alert.</p>' +
+      '<button type="button" class="btn alt" id="d-news">📣 Post results as an urgent alert</button></section>' : '') +
+    '<h2 class="admin-h">Draws (' + draws.length + ')</h2>' +
+    (draws.length ? '<ul class="action-list">' + draws.slice().reverse().map(drawItem).join("") + '</ul>' : '<p class="pad-x muted">No draws yet.</p>');
+
+  const by = () => {
+    const a = $("d-by1").value.trim(), b = $("d-by2").value.trim();
+    localStorage.setItem("rf-drawers", JSON.stringify([a, b]));
+    if (!a || !b) { $("d-err").textContent = "Please put the names of the two people doing the draw."; $("d-err").hidden = false; return null; }
+    return [a, b];
+  };
+  if ($("d-app")) $("d-app").onclick = async () => {
+    const names = by(); if (!names) return;
+    const list = pool(); if (!list.length) return;
+    const pick = list[randomIndex(list.length)];
+    const [c, n] = [pick.split(":")[0], Number(pick.split(":")[1])];
+    // A short "rolling" animation for the crowd, then the result
+    const btn = $("d-app"); btn.disabled = true;
+    const end = Date.now() + 1800;
+    await new Promise((done) => { (function roll() {
+      const k = list[randomIndex(list.length)].split(":"); btn.textContent = "🎲 " + label(k[0], k[1]);
+      if (Date.now() < end) setTimeout(roll, 70); else done(); })(); });
+    btn.textContent = "🎲 " + label(c, n);
+    record(c, n, "app", names);
+  };
+  if ($("d-manual")) $("d-manual").onclick = () => {
+    const names = by(); if (!names) return;
+    const c = $("d-c").value, n = Number($("d-n").value);
+    if ($("d-n").value === "" || !Number.isInteger(n)) return;
+    const k = c + ":" + n;
+    if (!soldTickets().has(k) && !confirm(label(c, n) + " isn't in the numbers logged as sold. Record it anyway?")) return;
+    if (draws.some((d) => (d.c || "") + ":" + d.n === k)) { $("d-err").textContent = label(c, n) + " has already been drawn – put it aside and draw again."; $("d-err").hidden = false; return; }
+    record(c, n, "drum", names);
+  };
+  if ($("d-news")) $("d-news").onclick = postResults;
+  $("tab").querySelectorAll("[data-claim]").forEach((b) => b.onclick = () => claimForm(b.dataset.claim));
+  $("tab").querySelectorAll("[data-void]").forEach((b) => b.onclick = () => voidDraw(b.dataset.void));
+}
+
+async function record(c, n, how, names) {
+  const prizeId = $("d-prize").value, prize = prizes.find((p) => p.id === prizeId);
+  try {
+    const ref = await fb.F.addDoc(fb.F.collection(fb.db, "raffleDraws"), {
+      prizeId, prizeName: prize ? prize.name : "", c, n, how, drawnBy: names, status: "won", by: user.email, at: fb.F.serverTimestamp()
+    });
+    lastDraw = ref.id;
+    document.activeElement && document.activeElement.blur();
+    showDraw(); window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (x) { msg("The draw didn't save – try again: " + x.message); showDraw(); }
+}
+
+function drawItem(d) {
+  const prize = (prizes.find((p) => p.id === d.prizeId) || {}).name || d.prizeName;
+  const state = d.status === "void" ? '<span class="badge sign">Void</span>' : d.status === "claimed" ? '<span class="badge open">Collected</span>' : '<span class="badge invite">To collect</span>';
+  return '<li class="action rf-draw' + (d.status === "void" ? " done" : "") + '" id="draw-' + d.id + '"><label><span class="action-text">' + swatch(d.c) + esc(label(d.c, d.n)) + ' – ' + esc(prize) + '</span>' +
+    '<span class="action-meta">' + fmtTime(d.at) + ' · ' + (d.how === "drum" ? "from the drum" : "app draw") + ' · by ' + esc((d.drawnBy || []).join(" & ")) +
+    (d.status === "claimed" ? ' · collected by ' + esc(d.winnerName || "?") + (d.publicName ? ' (shown as "' + esc(d.publicName) + '")' : ' (name not shown)') : '') +
+    (d.status === "void" ? ' · void: ' + esc(d.voidReason || "") : '') + '</span></label>' + state +
+    (d.status === "won" ? '<button type="button" class="btn alt small" data-claim="' + d.id + '">Collected</button><button type="button" class="btn alt small" data-void="' + d.id + '">Void</button>' : '') +
+  '</li>';
+}
+
+function claimForm(id) {
+  const li = $("draw-" + id);
+  if (li.nextElementSibling && li.nextElementSibling.classList.contains("rf-claim")) return;
+  li.insertAdjacentHTML("afterend", '<li class="card form-card rf-claim"><form id="cl-' + id + '">' +
+    '<p class="muted">Check their paper ticket matches before handing over the prize.</p>' +
+    '<label class="field" for="cl-name">Winner\'s name (organisers only)</label><input class="input" id="cl-name" maxlength="80" required>' +
+    '<label class="field" for="cl-contact">Phone or email (optional, organisers only)</label><input class="input" id="cl-contact" maxlength="100">' +
+    '<label class="check-row"><input type="checkbox" id="cl-ok"><span><b>They\'re happy for their name to show in the app</b></span></label>' +
+    '<label class="field" for="cl-public">Name to show (e.g. "Sarah J, Crymych")</label><input class="input" id="cl-public" maxlength="60">' +
+    '<button type="submit" class="btn">Save – prize collected</button></form></li>');
+  $("cl-ok").onchange = () => { if ($("cl-ok").checked && !$("cl-public").value) $("cl-public").value = $("cl-name").value.trim(); };
+  $("cl-name").focus();
+  $("cl-" + id).onsubmit = async (e) => {
+    e.preventDefault();
+    const pub = $("cl-ok").checked ? $("cl-public").value.trim() : "";
+    try {
+      await fb.F.updateDoc(fb.F.doc(fb.db, "raffleDraws", id), { status: "claimed", winnerName: $("cl-name").value.trim(), contact: $("cl-contact").value.trim(),
+        publicName: pub, nameConsent: !!pub, claimedAt: fb.F.serverTimestamp(), claimedBy: user.email });
+      document.activeElement.blur(); showDraw();
+    } catch (x) { msg("That didn't save: " + x.message); }
+  };
+}
+
+async function voidDraw(id) {
+  const reason = prompt("Why is this draw void? (e.g. 'Not claimed by end of day – redrawn', 'Ticket not sold'). The prize goes back in to be drawn again; this ticket stays out.");
+  if (!reason) return;
+  try { await fb.F.updateDoc(fb.F.doc(fb.db, "raffleDraws", id), { status: "void", voidReason: reason.slice(0, 200), voidBy: user.email, voidAt: fb.F.serverTimestamp() }); if (lastDraw === id) lastDraw = null; }
+  catch (x) { msg("That didn't work: " + x.message); }
+}
+
+async function postResults() {
+  const res = publicCopy().results;
+  if (!res.length || !confirm("Send an urgent alert with the " + res.length + " winning number" + (res.length > 1 ? "s" : "") + " to everyone with the app open?")) return;
+  const all = undrawnPrizes().length === 0;
+  const F = fb.F;
+  try {
+    await F.addDoc(F.collection(fb.db, "news"), {
+      titleEn: all ? "Raffle results are in! 🎉" : "Raffle draw – latest winners",
+      titleCy: all ? "Mae canlyniadau'r raffl yma! 🎉" : "Tynnu'r raffl – yr enillwyr diweddaraf",
+      bodyEn: res.map((r) => label(r.c, r.n) + " – " + r.p).join("\n") + "\n\nCheck your tickets and collect your prize from the raffle stand.",
+      bodyCy: res.map((r) => labelCy(r.c, r.n) + " – " + r.p).join("\n") + "\n\nGwiriwch eich tocynnau a chasglwch eich gwobr o stondin y raffl.",
+      urgent: true, publishAt: F.serverTimestamp(), hideAt: F.Timestamp.fromDate(new Date(Date.now() + 12 * 3600e3)),
+      author: user.email, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp()
+    });
+    msg("Alert posted. ✓");
+  } catch (x) { msg("The alert didn't post: " + x.message); }
+}
+
+/* ---------- The raffle record ---------- */
+function showRecord() {
+  const t = totals();
+  const row = (a, b) => '<tr><th scope="row">' + a + '</th><td>' + b + '</td></tr>';
+  $("tab").innerHTML = limitsCard() +
+    '<section class="card rf-record"><h2>Raffle record</h2>' +
+      '<p class="muted">Pembrokeshire Silage Day · Saturday 11 September 2027 · incidental lottery (Gambling Act 2005)' + (settings.charityEn ? ' · in aid of ' + esc(settings.charityEn) : '') + '</p>' +
+      '<table class="rf-table"><tbody>' +
+        row("Ticket price", settings.price ? money(settings.price) + " a strip of " + (settings.perStrip || 1) : "not set") +
+        row("Tickets sold", t.tickets + (sales.length ? " (" + sales.map((s) => label(s.c, s.from) + "–" + s.to).join(", ") + ")" : "")) +
+        row("Money taken", money(t.takings)) +
+        row("Running costs (max £" + COSTS_LIMIT + ")", money(t.costTotal) + (costs.length ? " – " + costs.map((c) => esc(c.what) + " " + money(c.amount)).join(", ") : "")) +
+        row("Spent on prizes (max £" + PRIZE_LIMIT + ")", money(t.prizeSpend)) +
+        row("Donated prizes", prizes.filter((p) => !p.bought).length) +
+        row("<b>Net to charity</b>", "<b>" + money(t.net) + "</b>") +
+      '</tbody></table>' +
+      '<h3>Draws</h3>' +
+      (draws.length ? '<table class="rf-table"><thead><tr><th>Time</th><th>Prize</th><th>Ticket</th><th>Drawn by</th><th>Result</th></tr></thead><tbody>' +
+        draws.map((d) => '<tr><td>' + fmtTime(d.at) + '</td><td>' + esc((prizes.find((p) => p.id === d.prizeId) || {}).name || d.prizeName) + '</td><td>' + esc(label(d.c, d.n)) + (d.how === "drum" ? " (drum)" : " (app)") + '</td>' +
+          '<td>' + esc((d.drawnBy || []).join(" & ")) + '</td><td>' + (d.status === "void" ? "Void – " + esc(d.voidReason || "") : d.status === "claimed" ? "Collected – " + esc(d.winnerName || "") : "Not collected yet") + '</td></tr>').join("") +
+      '</tbody></table>' : '<p class="muted">No draws yet.</p>') +
+      '<button type="button" class="btn alt" onclick="window.print()">🖨 Print or save as PDF</button>' +
+    '</section>';
+}
+</script>
+</body>
+</html>
