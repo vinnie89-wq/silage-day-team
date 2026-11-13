@@ -47,3 +47,6 @@
 #who-short { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: none; font-family: var(--font); font-weight: 600; font-size: 0.75rem; letter-spacing: 0; color: var(--muted); }
 .hb-signout { flex: none; }
 .back-hub { flex: none; font-weight: 700; color: var(--green); text-decoration: none; font-size: 0.875rem; order: 3; margin-left: auto; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.cal-tip { margin: 10px 0 0; font-size: 0.875rem; }
+.meet-card-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.meet-card-btns .btn { width: auto; margin: 0; }

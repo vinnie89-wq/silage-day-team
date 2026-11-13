@@ -11,7 +11,7 @@
 
    Firebase collections (organisers only – the security rules are
    kept with the visitor app: silage-day-visitor/firebase/firestore.rules):
-     meetings/{id}  title, start, end, link, agendaUrl, notes
+     meetings/{id}  title, start, end, link, agendaUrl, guests, notes
      actions/{id}   text, owner, due, done, createdBy, createdAt, updatedAt
      teamDocs/{id}  title, note, url, section, access, order
    It also READS the visitor app's registrations, checkins,
@@ -187,13 +187,37 @@ function showDashboard() {
   $("refresh").onclick = () => { stats = null; statsAt = 0; showDashboard(); };
 }
 
+/* ---------- Add to Google Calendar ----------
+   Opens Google Calendar (in the signed-in organiser account) with the
+   meeting filled in. There, click "Add Google Meet video conferencing"
+   and Save – then paste the Meet link back into the hub with Edit. */
+function calendarLink(m) {
+  const g = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const start = tsMs(m.start), end = tsMs(m.end) || start + 90 * 60000;
+  const details = [
+    m.agendaUrl ? "Agenda and papers: " + m.agendaUrl : "",
+    "Team hub: " + location.origin + location.pathname + "#meetings",
+    m.notes || ""
+  ].filter(Boolean).join("\n\n");
+  const q = new URLSearchParams({ action: "TEMPLATE", text: m.title || "Organising meeting", dates: g(start) + "/" + g(end), details: details });
+  if (m.link) q.set("location", m.link);
+  if (m.guests) q.set("add", m.guests.split(/[\s,;]+/).filter(Boolean).join(","));
+  if (user && user.email) q.set("authuser", user.email); // open in the organiser account, not someone's personal one
+  return "https://calendar.google.com/calendar/render?" + q.toString();
+}
+function calendarButton(m) {
+  return '<a class="btn alt" href="' + esc(calendarLink(m)) + '" target="_blank" rel="noopener">📅 Add to Google Calendar</a>';
+}
+
 function meetingSummary(m) {
   return '<p class="meet-when"><b>' + esc(m.title || "Organising meeting") + '</b><br>' + fmtDate(tsMs(m.start)) +
     (m.end ? '–' + new Date(tsMs(m.end)).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : '') + '</p>' +
     '<div class="meet-links">' +
       (m.link ? '<a class="btn" href="' + esc(m.link) + '" target="_blank" rel="noopener">Join meeting</a>' : '<span class="muted">No meeting link yet.</span>') +
       (m.agendaUrl ? '<a class="btn alt" href="' + esc(m.agendaUrl) + '" target="_blank" rel="noopener">Agenda and papers</a>' : '') +
-    '</div>';
+      calendarButton(m) +
+    '</div>' +
+    (m.link ? '' : '<p class="muted cal-tip">To set up a Google Meet: tap <b>Add to Google Calendar</b>, click <b>Add Google Meet video conferencing</b>, then <b>Save</b>. Copy the Meet link back here with <b>Edit</b>.</p>');
 }
 
 
@@ -217,7 +241,8 @@ function meetingCard(m) {
   return '<section class="card"><p class="meet-when"><b>' + esc(m.title || "Organising meeting") + '</b> · ' + fmtDate(tsMs(m.start)) + '</p>' +
     (m.agendaUrl ? '<p><a href="' + esc(m.agendaUrl) + '" target="_blank" rel="noopener">Agenda and papers</a></p>' : '') +
     (m.notes ? '<div class="meet-notes">' + esc(m.notes).replace(/\n/g, "<br>") + '</div>' : '') +
-    '<button type="button" class="btn alt small" data-edit-meeting="' + m.id + '">Edit</button></section>';
+    '<div class="meet-card-btns">' + (tsMs(m.start) > Date.now() ? calendarButton(m).replace('class="btn alt"', 'class="btn alt small"') : '') +
+    '<button type="button" class="btn alt small" data-edit-meeting="' + m.id + '">Edit</button></div></section>';
 }
 function meetingForm(m) {
   editingMeeting = m;
@@ -227,6 +252,9 @@ function meetingForm(m) {
     '<label class="field" for="m-end">Ends</label><input class="input" id="m-end" type="datetime-local" value="' + toInput(m && tsMs(m.end), true) + '">' +
     '<label class="field" for="m-link">Meeting link (Zoom, Teams, Meet…)</label><input class="input" id="m-link" type="url" value="' + esc(m ? m.link : "") + '">' +
     '<label class="field" for="m-agenda">Agenda and papers link</label><input class="input" id="m-agenda" type="url" value="' + esc(m ? m.agendaUrl : "") + '">' +
+    '<label class="field" for="m-guests">Who to invite (email addresses)</label>' +
+    '<p class="field-hint">Separated by commas. Used by "Add to Google Calendar" to send the invites.</p>' +
+    '<input class="input" id="m-guests" type="text" inputmode="email" autocapitalize="off" spellcheck="false" maxlength="1000" value="' + esc(m ? m.guests : "") + '">' +
     '<label class="field" for="m-notes">Notes and decisions</label><textarea class="input" id="m-notes" rows="5" maxlength="10000">' + esc(m ? m.notes : "") + '</textarea>' +
     '<p class="form-error" id="mf-err" hidden></p>' +
     '<button type="submit" class="btn">Save</button>' +
@@ -244,6 +272,7 @@ function meetingForm(m) {
       title: $("m-title").value.trim(), start: F.Timestamp.fromDate(new Date(start)),
       end: end ? F.Timestamp.fromDate(new Date(end)) : null,
       link: $("m-link").value.trim(), agendaUrl: $("m-agenda").value.trim(), notes: $("m-notes").value.trim(),
+      guests: $("m-guests").value.trim(),
       updatedAt: F.serverTimestamp()
     };
     try {
