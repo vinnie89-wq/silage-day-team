@@ -106,3 +106,6 @@
 .reg-id { display: inline-block; font: 700 0.75rem var(--font); background: #e7f1fb; color: #1d4f80; border-radius: 6px; padding: 1px 6px; margin-right: 4px; vertical-align: 1px; }
 .charity-row { border: 1px solid var(--line); border-radius: 12px; padding: 4px 12px 12px; margin: 0 0 10px; }
 .charity-row legend { font-weight: 700; color: var(--green); padding: 0 4px; }
+.logo-pick { display: grid; gap: 8px; }
+.logo-pick img { max-height: 64px; max-width: 200px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px; justify-self: start; }
+.logo-pick .btn.small { justify-self: start; }
