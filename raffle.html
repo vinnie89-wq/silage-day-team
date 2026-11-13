@@ -7,12 +7,12 @@
   <title>Raffle – Pembrokeshire Silage Day (organisers)</title>
   <link rel="icon" href="images/logo.png">
   <link rel="stylesheet" href="css/style.css?v=1">
-  <link rel="stylesheet" href="css/team.css?v=5">
+  <link rel="stylesheet" href="css/team.css?v=6">
   <!--
     ORGANISERS ONLY. Part of the Team hub.
     ⚖ Incidental lottery (Gambling Act 2005): tickets are sold on paper,
     at the show, on the day only. This page does NOT sell tickets. It keeps:
-      Setup   – what visitors see (price, draw time, where, charity)
+      Setup   – show the raffle to visitors (price, draw time etc. are Key facts)
       Prizes  – list, donor, what was spent on bought prizes
       Sales   – the ticket numbers sold (e.g. Pink 1–250) and takings
       Draw    – picks a winner from the numbers sold, records who drew it
@@ -71,7 +71,7 @@ const swatch = (c) => c ? '<span class="rf-swatch" style="background:' + SWATCH[
 const colourSelect = (id, value) => '<select class="input" id="' + id + '">' + COLOURS.map((c) => '<option value="' + c + '"' + (c === (value || "") ? " selected" : "") + '>' + (c ? cap(c) : "No colour") + '</option>').join("") + '</select>';
 
 let fb, user;
-let settings = {}, prizes = [], sales = [], costs = [], draws = [];
+let settings = {}, facts = {}, prizes = [], sales = [], costs = [], draws = [];
 let lastDraw = null; // id of the draw just made, to show it big
 
 if (!firebaseConfigured()) {
@@ -101,6 +101,7 @@ function listen() {
   const col = (name, set) => F.onSnapshot(F.collection(db, name), (snap) => { set(snap.docs.map((d) => ({ id: d.id, ...d.data() }))); changed(); }, fail);
   return [
     F.onSnapshot(F.doc(db, "config", "raffle"), (snap) => { settings = snap.exists() ? snap.data() : {}; changed(); }, fail),
+    F.onSnapshot(F.doc(db, "config", "facts"), (snap) => { facts = snap.exists() ? snap.data() : {}; changed(); }, fail),
     col("rafflePrizes", (x) => prizes = x.sort((a, b) => (a.order || 0) - (b.order || 0))),
     col("raffleSales", (x) => sales = x.sort((a, b) => tsMs(a.at) - tsMs(b.at))),
     col("raffleCosts", (x) => costs = x),
@@ -182,36 +183,37 @@ function limitsCard() {
   (t.costTotal > COSTS_LIMIT ? '<p class="form-error">⚠ Only £' + COSTS_LIMIT + ' of ticket money can go on running costs.</p>' : '');
 }
 
-/* ---------- Setup ---------- */
+/* ---------- Setup ----------
+   The price, strip, draw time, stand and unclaimed weeks are KEY FACTS
+   (register G6) and the charities are A5 – edited on facts.html, so they're
+   only ever changed in one place. This tab just shows them, plus the switch
+   that shows the raffle to visitors. */
 function showSetup() {
-  const s = settings;
+  const s = settings, f = facts;
+  const row = (id, label, value) => '<tr><th scope="row"><span class="reg-id">' + id + '</span> ' + label + '</th><td>' + (value || '<span class="muted">not set</span>') + '</td></tr>';
   $("tab").innerHTML =
-    '<form class="card form-card" id="sf"><h2>What visitors see</h2>' +
-      '<p class="muted">The Raffle page in the visitor app. Tickets are sold <b>only on paper at the show, on the day</b> – the app never sells them.</p>' +
-      '<div class="action-row"><div><label class="field" for="s-price">Price £</label><input class="input" id="s-price" type="number" min="0" step="0.5" inputmode="decimal" value="' + esc(s.price ?? "") + '"></div>' +
-      '<div><label class="field" for="s-strip">Tickets per strip</label><input class="input" id="s-strip" type="number" min="1" step="1" inputmode="numeric" value="' + esc(s.perStrip || 5) + '"></div></div>' +
-      '<p class="field-hint">e.g. £2 for a strip of 5. All tickets must cost the same.</p>' +
-      '<label class="field" for="s-time">Draw time</label><input class="input" id="s-time" type="time" value="' + esc(s.drawTime || "16:30") + '">' +
-      '<label class="field" for="s-whereEn">Where the raffle stand is – English</label><input class="input" id="s-whereEn" maxlength="120" value="' + esc(s.whereEn || "") + '" placeholder="e.g. Next to the main stand">' +
-      '<label class="field" for="s-whereCy">… Cymraeg</label><input class="input" id="s-whereCy" maxlength="120" value="' + esc(s.whereCy || "") + '">' +
-      '<label class="field" for="s-charityEn">In aid of – English</label><input class="input" id="s-charityEn" maxlength="120" value="' + esc(s.charityEn || "") + '">' +
-      '<label class="field" for="s-charityCy">… Cymraeg</label><input class="input" id="s-charityCy" maxlength="120" value="' + esc(s.charityCy || "") + '">' +
-      '<label class="field" for="s-weeks">Unclaimed prizes kept for (weeks)</label><input class="input" id="s-weeks" type="number" min="0" step="1" value="' + esc(s.unclaimedWeeks ?? 4) + '">' +
+    '<form class="card form-card" id="sf"><h2>Show in the visitor app</h2>' +
+      '<p class="muted">Tickets are sold <b>only on paper at the show, on the day</b> – the app never sells them.</p>' +
       '<label class="check-row"><input type="checkbox" id="s-show"' + (s.show ? " checked" : "") + '><span><b>Show the raffle in the visitor app</b> – until then visitors see "details coming soon"</span></label>' +
       '<p class="muted" id="s-status">' + (s.updatedBy ? "Last changed by " + esc(s.updatedBy) + ", " + fmtTime(s.updatedAt) + "." : "") + '</p>' +
-      '<button type="submit" class="btn">Save</button></form>';
+      '<button type="submit" class="btn">Save</button></form>' +
+    '<section class="card"><h2>Raffle details</h2>' +
+      '<p class="muted">From the key facts – change them in the register first, then on <a href="facts.html">Key facts</a>.</p>' +
+      '<table class="rf-table"><tbody>' +
+        row("G6", "Price", f.rafflePrice ? money(f.rafflePrice) + " for a strip of " + (f.raffleStrip || 1) : "") +
+        row("G6", "Draw time", esc(f.raffleDraw)) +
+        row("G6", "Raffle stand", esc(f.raffleWhereEn)) +
+        row("G6", "Unclaimed prizes kept", f.raffleUnclaimedWeeks ? f.raffleUnclaimedWeeks + " weeks" : "") +
+        row("A5", "In aid of", (f.charities || []).map((c) => esc(c.en)).join(" and ")) +
+      '</tbody></table><a class="btn alt" href="facts.html">Edit key facts</a></section>';
   $("sf").onsubmit = async (e) => {
     e.preventDefault();
     const { F, db } = fb;
-    const data = {
-      price: Number($("s-price").value) || 0, perStrip: Math.max(1, Math.round(Number($("s-strip").value) || 1)),
-      drawTime: $("s-time").value, whereEn: $("s-whereEn").value.trim(), whereCy: $("s-whereCy").value.trim(),
-      charityEn: $("s-charityEn").value.trim(), charityCy: $("s-charityCy").value.trim(),
-      unclaimedWeeks: Math.max(0, Math.round(Number($("s-weeks").value) || 0)), show: $("s-show").checked,
-      ...publicCopy(), updatedBy: user.email, updatedAt: F.serverTimestamp()
-    };
-    try { await F.setDoc(F.doc(db, "config", "raffle"), data, { merge: true }); $("s-status").textContent = data.show ? "Saved – showing in the visitor app. ✓" : "Saved – not shown to visitors yet. ✓"; }
-    catch (err) { $("s-status").textContent = "That didn't save: " + err.message; }
+    const show = $("s-show").checked;
+    try {
+      await F.setDoc(F.doc(db, "config", "raffle"), { show, ...publicCopy(), updatedBy: user.email, updatedAt: F.serverTimestamp() }, { merge: true });
+      $("s-status").textContent = show ? "Saved – showing in the visitor app. ✓" : "Saved – not shown to visitors yet. ✓";
+    } catch (err) { $("s-status").textContent = "That didn't save: " + err.message; }
   };
 }
 
@@ -265,7 +267,7 @@ function showPrizes() {
 
 /* ---------- Sales and costs ---------- */
 function showSales() {
-  const price = Number(settings.price) || 0, per = Number(settings.perStrip) || 1;
+  const price = Number(facts.rafflePrice) || 0, per = Number(facts.raffleStrip) || 1;
   $("tab").innerHTML = limitsCard() +
     '<form class="card form-card" id="slf"><h2>Log tickets sold</h2>' +
       '<p class="muted">Paper tickets only, sold at the stand on the day. Log each book or batch as it\'s sold – e.g. <b>Pink 1 to 250</b>. <b>The draw only picks from numbers logged here</b>, so log everything before the draw.</p>' +
@@ -274,7 +276,7 @@ function showSales() {
       '<div><label class="field" for="sl-to">To number</label><input class="input" id="sl-to" type="number" min="0" step="1" inputmode="numeric" required></div></div>' +
       '<div class="action-row"><div><label class="field" for="sl-amount">Money taken £</label><input class="input" id="sl-amount" type="number" min="0" step="0.01" inputmode="decimal" required></div>' +
       '<div><label class="field" for="sl-who">Sold by (optional)</label><input class="input" id="sl-who" maxlength="60"></div></div>' +
-      '<p class="field-hint" id="sl-hint">' + (price ? "At " + money(price) + " a strip of " + per + "." : "Set the price in Setup to fill in the money automatically.") + '</p>' +
+      '<p class="field-hint" id="sl-hint">' + (price ? "At " + money(price) + " a strip of " + per + "." : "Set the raffle price in Key facts (G6) to fill in the money automatically.") + '</p>' +
       '<p class="form-error" id="sl-err" hidden></p>' +
       '<button type="submit" class="btn">Log sale</button></form>' +
     '<h2 class="admin-h">Sold (' + sales.length + ')</h2>' +
@@ -479,9 +481,9 @@ function showRecord() {
   const row = (a, b) => '<tr><th scope="row">' + a + '</th><td>' + b + '</td></tr>';
   $("tab").innerHTML = limitsCard() +
     '<section class="card rf-record"><h2>Raffle record</h2>' +
-      '<p class="muted">Pembrokeshire Silage Day · Saturday 11 September 2027 · incidental lottery (Gambling Act 2005)' + (settings.charityEn ? ' · in aid of ' + esc(settings.charityEn) : '') + '</p>' +
+      '<p class="muted">Pembrokeshire Silage Day · ' + (facts.date ? new Date(facts.date + "T12:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "") + ' · incidental lottery (Gambling Act 2005)' + ((facts.charities || []).length ? ' · in aid of ' + facts.charities.map((c) => esc(c.en)).join(" and ") : '') + '</p>' +
       '<table class="rf-table"><tbody>' +
-        row("Ticket price", settings.price ? money(settings.price) + " a strip of " + (settings.perStrip || 1) : "not set") +
+        row("Ticket price", facts.rafflePrice ? money(facts.rafflePrice) + " a strip of " + (facts.raffleStrip || 1) : "not set") +
         row("Tickets sold", t.tickets + (sales.length ? " (" + sales.map((s) => label(s.c, s.from) + "–" + s.to).join(", ") + ")" : "")) +
         row("Money taken", money(t.takings)) +
         row("Running costs (max £" + COSTS_LIMIT + ")", money(t.costTotal) + (costs.length ? " – " + costs.map((c) => esc(c.what) + " " + money(c.amount)).join(", ") : "")) +

@@ -14,7 +14,7 @@
      meetings/{id}  title, start, end, link, agendaUrl, guests, notes
      actions/{id}   text, owner, due, done, createdBy, createdAt, updatedAt
      teamDocs/{id}  title, note, url, section, access, order
-     config/prices  adult, child (£), show – read by the visitor app
+     config/facts   the key facts the visitor app shows – edited on facts.html
    It also READS the visitor app's registrations, checkins,
    pending (photos) and news for the dashboard.
 
@@ -27,7 +27,9 @@ const $ = (id) => document.getElementById(id);
 const hub = $("hub");
 const nav = $("team-nav");
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const SHOW_DAY = new Date(2027, 8, 11);
+// The show date – from the key facts (config/facts, A1); this is the fallback
+let showDayIso = "2027-09-11";
+const showDay = () => { const p = showDayIso.split("-").map(Number); return new Date(p[0], p[1] - 1, p[2]); };
 const SECTIONS = ["Running the event", "Site and safety", "Exhibitors and traders", "Sponsors, marketing and money", "Event app", "Other"];
 const ACCESS = { open: ["Open", "opens straight from the link"], sign: ["Sign in", "needs a free Claude account"], invite: ["Invite only", "organisers invited by the owner"] };
 
@@ -131,8 +133,10 @@ async function loadStats() {
     prices: null, expected: 0, taken: 0 };
   const types = {}; // "CODE|n" → ticket type, to price what's been paid
   try {
-    const pr = await F.getDoc(F.doc(db, "config", "prices"));
-    if (pr.exists()) s.prices = pr.data();
+    // Prices are key facts now (config/facts, G5); config/prices is the old place
+    const fa = await F.getDoc(F.doc(db, "config", "facts"));
+    if (fa.exists()) { const f = fa.data(); s.prices = { adult: f.adult, child: f.child, show: !!f.showPrices }; if (f.date) showDayIso = f.date; }
+    else { const pr = await F.getDoc(F.doc(db, "config", "prices")); if (pr.exists()) s.prices = pr.data(); }
   } catch (e) { s.errors.push("prices"); }
   const priceOf = (type) => !s.prices ? 0 : type === "adult" ? Number(s.prices.adult) || 0 : type === "child" ? Number(s.prices.child) || 0 : 0;
   const weekAgo = Date.now() - 7 * 864e5;
@@ -168,19 +172,19 @@ async function loadStats() {
 function showDashboard() {
   if (!stats || Date.now() - statsAt > 60000) loadStats(); // figures refresh at most once a minute
   const s = stats;
-  const days = Math.max(0, Math.ceil((SHOW_DAY - new Date().setHours(0, 0, 0, 0)) / 864e5));
+  const days = Math.max(0, Math.ceil((showDay() - new Date().setHours(0, 0, 0, 0)) / 864e5));
   const m = nextMeeting();
   const open = openActions(), overdue = open.filter(isOverdue);
   const tile = (num, label, link, warn) => '<a class="dash-tile' + (warn ? " warn" : "") + '" href="' + link + '"><b>' + num + '</b><span>' + label + '</span></a>';
   hub.innerHTML =
     '<h1 class="page-title">Dashboard</h1>' +
-    '<div class="countdown"><b>' + days + '</b><div>days to go until<br><strong>Saturday 11 September 2027</strong></div></div>' +
+    '<div class="countdown"><b>' + days + '</b><div>days to go until<br><strong>' + showDay().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) + '</strong></div></div>' +
     '<section class="card"><h2>🎟️ Tickets</h2>' + (s ?
       '<div class="dash-grid">' + tile(s.groups, "groups registered", "#dashboard") + tile(s.people, "people", "#dashboard") +
         tile(s.week, "new groups this week", "#dashboard") + tile(s.paid, "paid at the gate", "#dashboard") + '</div>' +
       (s.prices ? '<p class="money-line">💷 <b>' + money(s.expected) + '</b> expected at the gate if everyone comes · <b>' + money(s.taken) + '</b> taken so far' +
         (s.prices.show ? '' : ' <span class="muted">(using the proposed prices – not yet shown to visitors)</span>') + '</p>'
-        : '<p class="muted">Set ticket prices in <a href="#tools">Tools</a> to see expected takings.</p>') +
+        : '<p class="muted">Set ticket prices in <a href="facts.html">Key facts</a> to see expected takings.</p>') +
       '<p class="muted">' + s.adult + (s.adult === 1 ? ' adult' : ' adults') + ' · ' + s.child + (s.child === 1 ? ' child' : ' children') + ' · ' + s.under5 + ' under-5' + (s.under5 === 1 ? '' : 's') + '</p>'
       : '<p class="muted">Loading…</p>') + '</section>' +
     '<section class="card"><h2>🗓️ Next meeting</h2>' + (m ? meetingSummary(m) : '<p class="muted">None booked. <a href="#meetings">Add one</a>.</p>') + '</section>' +
@@ -443,14 +447,8 @@ function importForm() {
 function showTools() {
   const t = (href, icon, title, note) => '<li><a href="' + href + '"' + (href.startsWith("http") ? ' target="_blank" rel="noopener"' : '') + '><span><b>' + icon + ' ' + title + '</b><small>' + note + '</small></span><span aria-hidden="true">→</span></a></li>';
   hub.innerHTML = '<h1 class="page-title">Tools</h1>' +
-    '<form class="card form-card" id="pf"><h2>💷 Ticket prices</h2>' +
-      '<p class="muted">Paid at the gate. Under-5s are always free. While "Show prices to visitors" is off, the visitor app says "prices to be confirmed" – so you can enter a proposal first.</p>' +
-      '<div class="action-row"><div><label class="field" for="p-adult">Adult (16+) £</label><input class="input" id="p-adult" type="number" min="0" step="0.5" inputmode="decimal" required></div>' +
-      '<div><label class="field" for="p-child">Child (5–15) £</label><input class="input" id="p-child" type="number" min="0" step="0.5" inputmode="decimal" required></div></div>' +
-      '<label class="check-row"><input type="checkbox" id="p-show"><span><b>Show prices to visitors</b> – tick once they\'re agreed</span></label>' +
-      '<p class="muted" id="p-status"></p>' +
-      '<button type="submit" class="btn">Save prices</button></form>' +
     '<h2 class="admin-h">Visitor app</h2><ul class="doc-list">' +
+      t("facts.html", "📌", "Key facts", "Date, times, venue, charities, entry and raffle prices – from the key assumptions register") +
       t("news.html", "📣", "Post news and alerts", "Write, schedule and edit news; urgent alerts on the day") +
       t("raffle.html", "🎁", "Raffle", "Prizes, tickets sold, the draw and the raffle record") +
       t("photos.html", "📷", "Approve photos", "Check visitors' photos before they appear") +
@@ -461,31 +459,6 @@ function showTools() {
       t("https://github.com/vinnie89-wq/silage-day-visitor", "🐙", "Visitor app code (GitHub)", "Where changes to the visitor app are made") +
       t("https://github.com/vinnie89-wq/silage-day-team", "🐙", "Team hub code (GitHub)", "Where changes to this app are made") +
     '</ul><p class="pad-x muted">Signed in as ' + esc(user.email) + '.</p>';
-  pricesForm();
-}
-
-async function pricesForm() {
-  const { F, db } = fb;
-  const ref = F.doc(db, "config", "prices");
-  try {
-    const snap = await F.getDoc(ref);
-    if (snap.exists() && $("p-adult")) {
-      const d = snap.data();
-      $("p-adult").value = d.adult; $("p-child").value = d.child; $("p-show").checked = !!d.show;
-      $("p-status").textContent = (d.show ? "Showing to visitors." : "Proposal – not shown to visitors yet.") +
-        (d.updatedBy ? " Last changed by " + d.updatedBy + (d.updatedAt ? ", " + fmtDate(tsMs(d.updatedAt)) : "") + "." : "");
-    }
-  } catch (e) { $("p-status").textContent = "Couldn't load prices: " + e.message; }
-  $("pf").onsubmit = async (e) => {
-    e.preventDefault();
-    const adult = Number($("p-adult").value), child = Number($("p-child").value), show = $("p-show").checked;
-    if (show && !confirm("Show " + money(adult) + " adult / " + money(child) + " child to visitors in the app now?")) return;
-    try {
-      await F.setDoc(ref, { adult, child, show, updatedBy: user.email, updatedAt: F.serverTimestamp() });
-      stats = null;
-      $("p-status").textContent = show ? "Saved – visitors now see these prices. ✓" : "Saved as a proposal – visitors still see \"to be confirmed\". ✓";
-    } catch (err) { $("p-status").textContent = "That didn't save: " + err.message; }
-  };
 }
 
 start();
