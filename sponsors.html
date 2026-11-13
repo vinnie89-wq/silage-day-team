@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Sponsors – Pembrokeshire Silage Day (organisers)</title>
+  <link rel="icon" href="images/logo.png">
+  <link rel="stylesheet" href="css/style.css?v=1">
+  <link rel="stylesheet" href="css/team.css?v=8">
+  <!--
+    ORGANISERS ONLY. Part of the Team hub.
+    The sponsor tracker: every sponsor and prospect, their package, price,
+    contact and progress (Firebase "sponsors" – organisers only).
+    For each sponsor switched to "Live" or "Preview only", the parts visitors
+    should see (name, level, field, logo, website, a line, an offer) are
+    copied to "sponsorsPublic", which the visitor app reads.
+    Packages follow the "Sponsorship packages and agreement" document.
+  -->
+</head>
+<body>
+<div class="app approve-page">
+  <header class="site-header">
+    <div class="header-row">
+      <img class="header-logo" src="images/logo.png" alt="Pembrokeshire Silage Day" width="116" height="58">
+      <a class="back-hub" href="index.html" aria-label="Back to the Team hub">← Hub</a>
+      <p class="header-date">Team hub<br><span>Sponsors</span></p>
+    </div>
+  </header>
+  <main>
+    <h1 class="page-title">🤝 Sponsors</h1>
+    <p class="page-intro">Track every sponsor from first contact to paid, and choose what shows in the visitor app.
+      Packages and benefits: <a href="https://claude.ai/artifact/XsYNMu1T5GU6tHVhASQ2dB" target="_blank" rel="noopener">Sponsorship packages and agreement</a>.</p>
+
+    <section class="card" id="signin-card">
+      <p id="who">Sign in with your organiser Google account.</p>
+      <button type="button" class="btn" id="signin">Sign in with Google</button>
+      <button type="button" class="btn alt" id="signout" hidden>Sign out</button>
+    </section>
+    <p class="map-message" id="msg" hidden></p>
+    <div id="sp" hidden></div>
+  </main>
+</div>
+<script src="js/firebase-config.js?v=1"></script>
+<script src="js/firebase.js?v=1"></script>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const msg = (text) => { $("msg").hidden = !text; $("msg").textContent = text || ""; if (text) $("msg").scrollIntoView({ behavior: "smooth", block: "center" }); };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (n) => "£" + (Number(n) || 0).toLocaleString("en-GB", { maximumFractionDigits: 2 });
+
+const LEVELS = { headline: "Headline sponsor (1)", field: "Field sponsor (up to 7)", supporter: "Supporter", partner: "Partner (e.g. media / content)" };
+const STATUS = { prospect: "Prospect", approached: "Approached", agreed: "Agreed", invoiced: "Invoiced", paid: "Paid", declined: "Declined" };
+const STATUS_CLS = { prospect: "", approached: "invite", agreed: "invite", invoiced: "invite", paid: "open", declined: "sign" };
+const SHOW = { off: "Off – not in the app", preview: "Preview only – shown with ?preview=1", live: "Live – everyone sees it" };
+const FIELDS = [5, 6, 7, 8, 9, 10, 11];
+const PUBLIC = ["name", "level", "field", "logo", "url", "blurbEn", "blurbCy", "offerEn", "offerCy", "visible", "order"];
+
+let fb, user, sponsors = [], editing = null, logo = "";
+
+if (!firebaseConfigured()) {
+  msg("Firebase isn't set up yet – fill in js/firebase-config.js first (see README).");
+  $("signin").disabled = true;
+} else {
+  fb = await getFirebase();
+  const { auth, A, F, db } = fb;
+  $("signin").onclick = () => A.signInWithPopup(auth, new A.GoogleAuthProvider()).catch((e) => msg("Sign-in didn't work: " + e.message));
+  $("signout").onclick = () => A.signOut(auth);
+  let stop = null;
+  A.onAuthStateChanged(auth, (u) => {
+    user = u && !u.isAnonymous ? u : null;
+    $("signin").hidden = !!user; $("signout").hidden = !user; $("sp").hidden = !user;
+    $("who").textContent = user ? "Signed in as " + user.email : "Sign in with your organiser Google account.";
+    if (stop) { stop(); stop = null; }
+    if (user) stop = F.onSnapshot(F.collection(db, "sponsors"), (snap) => {
+      sponsors = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const typing = document.activeElement && $("sp").contains(document.activeElement) && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+      if (!typing) draw();
+    }, (e) => msg(e.code === "permission-denied" ? "Not allowed – check you're on the organisers' list and the latest rules are published (visitor app: firebase/firestore.rules)." : "Couldn't load: " + e.message));
+  });
+}
+
+// Logos are shrunk so they load quickly on visitors' phones
+function shrinkLogo(file) {
+  return new Promise((ok, fail) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const w = img.naturalWidth || 480, h = img.naturalHeight || 200, scale = Math.min(1, 480 / w, 200 / h);
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(w * scale)); c.height = Math.max(1, Math.round(h * scale));
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      let out = c.toDataURL("image/png");
+      if (out.length > 120000) out = c.toDataURL("image/webp", 0.9);
+      if (out.length > 300000) return fail(new Error("too big"));
+      ok(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); fail(new Error("bad image")); };
+    img.src = url;
+  });
+}
+
+const select = (id, options, value) => '<select class="input" id="' + id + '">' + Object.entries(options).map(([k, v]) => '<option value="' + k + '"' + (k === value ? " selected" : "") + '>' + v + '</option>').join("") + '</select>';
+const input = (id, label, value, extra) => '<label class="field" for="' + id + '">' + label + '</label><input class="input" id="' + id + '" value="' + esc(value ?? "") + '"' + (extra || "") + '>';
+
+function draw() {
+  const s = editing ? sponsors.find((x) => x.id === editing) || {} : {};
+  logo = s.logo || "";
+  const active = sponsors.filter((x) => x.status !== "declined");
+  const agreed = active.filter((x) => ["agreed", "invoiced", "paid"].includes(x.status)).reduce((t, x) => t + (Number(x.price) || 0), 0);
+  const paid = active.filter((x) => x.status === "paid").reduce((t, x) => t + (Number(x.price) || 0), 0);
+  const live = sponsors.filter((x) => x.visible === "live").length, preview = sponsors.filter((x) => x.visible === "preview").length;
+  const fieldOf = (n) => sponsors.filter((x) => x.level === "field" && Number(x.field) === n && x.status !== "declined");
+  const tile = (n, l, warn) => '<div class="dash-tile' + (warn ? " warn" : "") + '"><b>' + n + '</b><span>' + l + '</span></div>';
+
+  $("sp").innerHTML =
+    '<div class="dash-grid">' + tile(money(agreed), "agreed") + tile(money(paid), "paid") +
+      tile(live, "live in the app") + tile(preview, "preview only") + '</div>' +
+
+    '<section class="card"><h2>Fields</h2><ul class="sp-fields">' + FIELDS.map((n) => {
+      const who = fieldOf(n);
+      return '<li class="' + (who.length > 1 ? "clash" : who.length ? "taken" : "") + '"><b>Field ' + n + (n === 5 ? ' (finale)' : '') + '</b><span>' +
+        (who.length ? who.map((x) => esc(x.name) + ' · ' + STATUS[x.status || "prospect"]).join("<br>") : 'Available') + '</span></li>';
+    }).join("") + '</ul>' +
+    (FIELDS.some((n) => fieldOf(n).length > 1) ? '<p class="form-error">⚠ Two sponsors on the same field – the app shows the first one.</p>' : '') +
+    '</section>' +
+
+    '<form class="card form-card" id="sf" novalidate><h2>' + (editing ? "Edit " + esc(s.name) : "Add a sponsor") + '</h2>' +
+      input("s-name", "Business name", s.name, ' maxlength="80" required') +
+      '<div class="action-row"><div><label class="field" for="s-level">Package</label>' + select("s-level", LEVELS, s.level || "field") + '</div>' +
+      '<div id="s-field-wrap"><label class="field" for="s-field">Field</label>' + select("s-field", Object.fromEntries([["", "–"]].concat(FIELDS.map((n) => [String(n), "Field " + n + (n === 5 ? " (finale)" : "")]))), String(s.field || "")) + '</div></div>' +
+      '<div class="action-row"><div><label class="field" for="s-status">Status</label>' + select("s-status", STATUS, s.status || "prospect") + '</div>' +
+      '<div>' + input("s-price", "Price £ (or in-kind value)", s.price, ' type="number" min="0" step="1" inputmode="decimal"') + '</div></div>' +
+      input("s-contact", "Contact name", s.contact, ' maxlength="80"') +
+      input("s-email", "Contact email or phone", s.email, ' maxlength="120"') +
+      '<label class="field" for="s-notes">Notes (organisers only) – e.g. in-kind items, banners, pitch, logo received?</label><textarea class="input" id="s-notes" rows="3" maxlength="1500">' + esc(s.notes || "") + '</textarea>' +
+
+      '<h3 class="sp-sub">In the visitor app</h3>' +
+      '<label class="field" for="s-visible">Show</label>' + select("s-visible", SHOW, s.visible || "off") +
+      '<p class="field-hint">Switch to <b>Live</b> once they\'ve paid – the agreement says benefits start then. Use <b>Preview only</b> for last year\'s sponsors, to try the look: only people who open the app with ?preview=1 see them.</p>' +
+      '<label class="field" for="s-logo">Logo (from the sponsor)</label>' +
+      '<div class="logo-pick"><img id="s-prev" alt=""' + (logo ? ' src="' + esc(logo) + '"' : ' hidden') + '>' +
+        '<input class="input" id="s-logo" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp">' +
+        '<button type="button" class="btn alt small" id="s-rm"' + (logo ? '' : ' hidden') + '>Remove logo</button></div>' +
+      input("s-url", "Website", s.url, ' type="url" maxlength="200" placeholder="https://"') +
+      input("s-blurbEn", "A line about them – English", s.blurbEn, ' maxlength="200"') +
+      input("s-blurbCy", "… Cymraeg", s.blurbCy, ' maxlength="200"') +
+      input("s-offerEn", "Offer or voucher – English (optional)", s.offerEn, ' maxlength="200" placeholder="e.g. 10% off parts on the day – show this at our stand"') +
+      input("s-offerCy", "… Cymraeg", s.offerCy, ' maxlength="200"') +
+      input("s-order", "Order (lower = first)", s.order ?? "", ' type="number" step="1"') +
+      '<p class="form-error" id="s-err" role="alert" hidden></p>' +
+      '<button type="submit" class="btn">' + (editing ? "Save changes" : "Add sponsor") + '</button>' +
+      (editing ? '<button type="button" class="btn alt" id="s-cancel">Cancel editing</button><button type="button" class="btn alt" id="s-del">Delete this sponsor</button>' : '') +
+    '</form>' +
+
+    Object.keys(LEVELS).map((lv) => {
+      const g = sponsors.filter((x) => (x.level || "supporter") === lv).sort((a, b) => (Number(a.field) || 0) - (Number(b.field) || 0) || (a.order || 0) - (b.order || 0) || String(a.name).localeCompare(b.name));
+      if (!g.length) return "";
+      return '<h2 class="admin-h">' + LEVELS[lv].replace(/ \(.*\)/, "") + ' (' + g.length + ')</h2><ul class="action-list">' + g.map((x) =>
+        '<li class="action' + (x.status === "declined" ? " done" : "") + '">' +
+          (x.logo ? '<img class="sp-thumb" src="' + esc(x.logo) + '" alt="">' : '') +
+          '<label><span class="action-text">' + esc(x.name) + (x.level === "field" && x.field ? ' · Field ' + x.field : '') + '</span>' +
+          '<span class="action-meta">' + (x.price ? money(x.price) + ' · ' : '') + (x.contact ? esc(x.contact) + ' · ' : '') +
+            (x.visible === "live" ? '<b>Live in the app</b>' : x.visible === "preview" ? 'Preview only' : 'Not in the app') + '</span></label>' +
+          '<span class="badge ' + (STATUS_CLS[x.status] || "") + '">' + (STATUS[x.status] || "Prospect") + '</span>' +
+          '<button type="button" class="btn alt small" data-edit="' + x.id + '">Edit</button></li>').join("") + '</ul>';
+    }).join("") +
+
+    (live ? '<section class="card"><h2>Say thank you</h2><p class="muted">Posts a news item in the visitor app thanking every live sponsor – e.g. with the end-of-day donation announcement.</p>' +
+      '<button type="button" class="btn alt" id="s-thanks">📣 Post a thank-you to our sponsors</button></section>' : '');
+
+  // Form behaviour
+  const fieldWrap = () => { $("s-field-wrap").hidden = $("s-level").value !== "field"; };
+  $("s-level").onchange = fieldWrap; fieldWrap();
+  $("s-logo").onchange = async (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    try { logo = await shrinkLogo(file); $("s-prev").src = logo; $("s-prev").hidden = false; $("s-rm").hidden = false; }
+    catch (x) { alert("That picture didn't work – try a PNG or JPG."); }
+  };
+  $("s-rm").onclick = () => { logo = ""; $("s-prev").hidden = true; $("s-rm").hidden = true; $("s-logo").value = ""; };
+  $("sf").onsubmit = save;
+  if ($("s-cancel")) $("s-cancel").onclick = () => { editing = null; draw(); };
+  if ($("s-del")) $("s-del").onclick = removeSponsor;
+  $("sp").querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => { editing = b.dataset.edit; draw(); $("sf").scrollIntoView({ behavior: "smooth" }); });
+  if ($("s-thanks")) $("s-thanks").onclick = postThanks;
+}
+
+async function save(e) {
+  e.preventDefault();
+  const { F, db } = fb;
+  const err = (t) => { $("s-err").textContent = t; $("s-err").hidden = false; };
+  const v = (id) => $(id).value.trim();
+  const data = {
+    name: v("s-name"), level: v("s-level"), field: v("s-level") === "field" ? Number(v("s-field")) || 0 : 0,
+    status: v("s-status"), price: Number(v("s-price")) || 0, contact: v("s-contact"), email: v("s-email"), notes: v("s-notes"),
+    visible: v("s-visible"), logo, url: v("s-url"), blurbEn: v("s-blurbEn"), blurbCy: v("s-blurbCy"),
+    offerEn: v("s-offerEn"), offerCy: v("s-offerCy"), order: Number(v("s-order")) || 0,
+    updatedBy: user.email, updatedAt: F.serverTimestamp()
+  };
+  if (!data.name) return err("Please put the business name.");
+  if (data.url && !/^https:\/\/\S+\.\S+/.test(data.url)) return err("The website should start with https://");
+  if (data.level === "headline" && sponsors.some((x) => x.id !== editing && x.level === "headline" && x.status !== "declined" && x.visible !== "preview") && data.visible !== "preview" &&
+      !confirm("There's already a headline sponsor. The package is for one only – save anyway?")) return;
+  if (data.visible === "live" && data.status !== "paid" &&
+      !confirm("This sponsor isn't marked as paid. The agreement says benefits start once payment is received – show them to everyone anyway?")) return;
+  try {
+    let id = editing;
+    if (id) await F.updateDoc(F.doc(db, "sponsors", id), data);
+    else { data.createdAt = F.serverTimestamp(); id = (await F.addDoc(F.collection(db, "sponsors"), data)).id; }
+    await syncPublic(id, data);
+    editing = null; document.activeElement.blur(); draw();
+    msg(data.visible === "off" ? "Saved. ✓ (Not in the app.)" : data.visible === "preview" ? "Saved – shows in the app's preview mode only. ✓" : "Saved – now in the visitor app. ✓");
+  } catch (x) {
+    err(x.code === "permission-denied" ? "Not allowed – check the latest rules are published (visitor app: firebase/firestore.rules)." : "That didn't save: " + x.message);
+  }
+}
+
+// Copy (or remove) what visitors see
+async function syncPublic(id, data) {
+  const { F, db } = fb;
+  const ref = F.doc(db, "sponsorsPublic", id);
+  if (data.visible === "off" || data.status === "declined") { try { await F.deleteDoc(ref); } catch (e) {} return; }
+  const pub = {};
+  PUBLIC.forEach((k) => pub[k] = data[k] ?? "");
+  await F.setDoc(ref, pub);
+}
+
+async function removeSponsor() {
+  const s = sponsors.find((x) => x.id === editing);
+  if (!s || !confirm("Delete " + s.name + " from the tracker and the app?")) return;
+  const { F, db } = fb;
+  try {
+    try { await F.deleteDoc(F.doc(db, "sponsorsPublic", editing)); } catch (e) {}
+    await F.deleteDoc(F.doc(db, "sponsors", editing));
+    editing = null; draw();
+  } catch (x) { msg("That didn't work: " + x.message); }
+}
+
+async function postThanks() {
+  const live = sponsors.filter((x) => x.visible === "live").map((x) => x.name);
+  if (!live.length || !confirm("Post a thank-you naming " + live.length + " sponsor" + (live.length > 1 ? "s" : "") + " in the visitor app's news now?")) return;
+  const list = live.length > 1 ? live.slice(0, -1).join(", ") + " and " + live[live.length - 1] : live[0];
+  const listCy = live.length > 1 ? live.slice(0, -1).join(", ") + " a " + live[live.length - 1] : live[0];
+  const { F, db } = fb;
+  try {
+    await F.addDoc(F.collection(db, "news"), {
+      titleEn: "Thank you to our sponsors", titleCy: "Diolch i'n noddwyr",
+      bodyEn: "Pembrokeshire Silage Day wouldn't happen without the support of " + list + ". Thank you!",
+      bodyCy: "Fyddai Diwrnod Silwair Sir Benfro ddim yn digwydd heb gefnogaeth " + listCy + ". Diolch!",
+      urgent: false, publishAt: F.serverTimestamp(), hideAt: null, author: user.email, createdAt: F.serverTimestamp(), updatedAt: F.serverTimestamp()
+    });
+    msg("Thank-you posted in the visitor app's news. ✓ (Edit it on the News page if you'd like to add more.)");
+  } catch (x) { msg("It didn't post: " + x.message); }
+}
+</script>
+</body>
+</html>

@@ -28,6 +28,7 @@ document links, names or figures. Those are all in Firebase.
 | `news.html` | Post news and urgent alerts in English and Welsh – now or scheduled. They appear in the visitor app. |
 | `photos.html` | Approve or reject visitors' photos before they appear in the visitor app. |
 | `facts.html` | **Key facts** – the date, hours, venue, charities, entry prices and raffle details the visitor app shows. Each box carries its ID from the *Key assumptions and details* register (the master copy): change the register first, then here, and every page of the visitor app updates. Saved as `config/facts`. |
+| `sponsors.html` | **Sponsors** – tracker (package, field, price, contact, status, notes) and what shows in the visitor app: logo, website, a line, an offer. Each sponsor is Off, Preview only (shown with ?preview=1 – for trying the look with last year's sponsors) or Live. Organisers-only data in `sponsors`; the public part copied to `sponsorsPublic`. |
 | `raffle.html` | **Raffle** – show it to visitors, prizes, tickets sold and costs, the draw, and the printable raffle record. Paper tickets on the day only. |
 
 Code: `js/team.js` (the hub), `js/firebase.js` (the shared Firebase connection), `js/firebase-config.js`

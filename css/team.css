@@ -109,3 +109,14 @@
 .logo-pick { display: grid; gap: 8px; }
 .logo-pick img { max-height: 64px; max-width: 200px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px; justify-self: start; }
 .logo-pick .btn.small { justify-self: start; }
+/* Sponsors (sponsors.html) */
+.sp-fields { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.sp-fields li { background: var(--light); border-radius: 10px; padding: 8px 10px; font-size: 0.875rem; }
+.sp-fields li b { display: block; color: var(--green); }
+.sp-fields li span { color: var(--muted); }
+.sp-fields li.taken { background: #e5f4e4; }
+.sp-fields li.taken span { color: var(--ink); }
+.sp-fields li.clash { background: #fbebeb; }
+.sp-sub { margin: 18px 0 2px; color: var(--green); }
+.sp-thumb { flex: none; width: 56px; height: 36px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
+.action .badge { align-self: center; }
