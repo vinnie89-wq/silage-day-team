@@ -7,7 +7,7 @@
   <title>Key facts – Pembrokeshire Silage Day (organisers)</title>
   <link rel="icon" href="images/logo.png">
   <link rel="stylesheet" href="css/style.css?v=1">
-  <link rel="stylesheet" href="css/team.css?v=6">
+  <link rel="stylesheet" href="css/team.css?v=7">
   <!--
     ORGANISERS ONLY. Part of the Team hub.
     The facts the VISITOR APP shows: date, hours, venue, charities, entry
@@ -58,7 +58,8 @@
 
       <section class="card form-card">
         <h2><span class="reg-id">A5</span> Charities</h2>
-        <p class="muted">Shown on the home page and the Raffle page, linked to their websites. Leave a row empty to remove it.</p>
+        <p class="muted">Shown on the home page (as logos, if you add them) and the Raffle page, linked to their websites. Leave a row empty to remove it.</p>
+        <p class="field-hint">Logos: use each charity's own <b>"in aid of" logo</b> – ask their fundraising team for it, and for their OK to use it. Don't take one off their website. PNG, JPG or SVG; it's shrunk automatically.</p>
         <div id="charities"></div>
       </section>
 
@@ -119,6 +120,29 @@ const DEFAULTS = {
 const PLAIN = ["date", "opens", "closes", "venueEn", "venueCy", "postcode", "raffleDraw", "raffleWhereEn", "raffleWhereCy"];
 const NUMBERS = ["adult", "child", "rafflePrice", "raffleStrip", "raffleUnclaimedWeeks"];
 
+// Logos are kept small (they're stored in the key facts and every visitor's phone keeps a copy):
+// at most 480 × 200 pixels, PNG so transparent backgrounds stay transparent.
+const logos = [];
+function shrinkLogo(file) {
+  return new Promise((ok, fail) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const w = img.naturalWidth || 480, h = img.naturalHeight || 200;
+      const scale = Math.min(1, 480 / w, 200 / h);
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(w * scale)); c.height = Math.max(1, Math.round(h * scale));
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      let out = c.toDataURL("image/png");
+      if (out.length > 120000) out = c.toDataURL("image/webp", 0.9); // still big? use a smaller format
+      if (out.length > 160000) return fail(new Error("too big"));
+      ok(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); fail(new Error("bad image")); };
+    img.src = url;
+  });
+}
+
 function charityRows(list) {
   const rows = list.concat([{}, {}]).slice(0, Math.max(3, list.length + 1)).slice(0, 6);
   $("charities").innerHTML = rows.map((c, i) =>
@@ -126,7 +150,20 @@ function charityRows(list) {
     '<label class="field" for="c-en-' + i + '">Name – English</label><input class="input" id="c-en-' + i + '" maxlength="80" value="' + esc(c.en) + '">' +
     '<label class="field" for="c-cy-' + i + '">Name – Cymraeg</label><input class="input" id="c-cy-' + i + '" maxlength="80" value="' + esc(c.cy) + '">' +
     '<label class="field" for="c-url-' + i + '">Website</label><input class="input" id="c-url-' + i + '" type="url" maxlength="200" placeholder="https://" value="' + esc(c.url) + '">' +
+    '<label class="field" for="c-logo-' + i + '">"In aid of" logo (optional)</label>' +
+    '<div class="logo-pick"><img id="c-prev-' + i + '" alt=""' + (c.logo ? ' src="' + esc(c.logo) + '"' : ' hidden') + '>' +
+      '<input class="input" id="c-logo-' + i + '" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp">' +
+      '<button type="button" class="btn alt small" id="c-rm-' + i + '"' + (c.logo ? '' : ' hidden') + '>Remove logo</button></div>' +
     '</fieldset>').join("");
+  rows.forEach((c, i) => {
+    logos[i] = c.logo || "";
+    $("c-logo-" + i).onchange = async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      try { logos[i] = await shrinkLogo(file); $("c-prev-" + i).src = logos[i]; $("c-prev-" + i).hidden = false; $("c-rm-" + i).hidden = false; }
+      catch (x) { alert("That picture didn't work – try a PNG or JPG."); }
+    };
+    $("c-rm-" + i).onclick = () => { logos[i] = ""; $("c-prev-" + i).hidden = true; $("c-rm-" + i).hidden = true; $("c-logo-" + i).value = ""; };
+  });
 }
 
 function fill(d) {
@@ -178,7 +215,7 @@ if (!firebaseConfigured()) {
     data.raffleUnclaimedWeeks = Math.round(data.raffleUnclaimedWeeks);
     data.showPrices = $("f-showPrices").checked;
     data.charities = [...$("charities").querySelectorAll(".charity-row")].map((row, i) => ({
-      en: $("c-en-" + i).value.trim(), cy: $("c-cy-" + i).value.trim(), url: $("c-url-" + i).value.trim()
+      en: $("c-en-" + i).value.trim(), cy: $("c-cy-" + i).value.trim(), url: $("c-url-" + i).value.trim(), logo: logos[i] || ""
     })).filter((c) => c.en || c.cy);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date)) return err("Please choose the show date (A1).");
     if (!data.opens || !data.closes) return err("Please fill in the opening hours (A2).");
