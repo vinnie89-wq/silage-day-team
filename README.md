@@ -27,13 +27,16 @@ document links, names or figures. Those are all in Firebase.
 | `index.html` | **Dashboard** (registrations, payments, next meeting, actions, photos waiting, news), **Meetings**, **Actions** (shared tracker), **Documents** (plan links; Import), **Tools** |
 | `news.html` | Post news and urgent alerts in English and Welsh – now or scheduled. They appear in the visitor app. |
 | `photos.html` | Approve or reject visitors' photos before they appear in the visitor app. |
+| `facts.html` | **Key facts** – the date, hours, venue, charities, entry prices and raffle details the visitor app shows. Each box carries its ID from the *Key assumptions and details* register (the master copy): change the register first, then here, and every page of the visitor app updates. Saved as `config/facts`. |
+| `raffle.html` | **Raffle** – show it to visitors, prizes, tickets sold and costs, the draw, and the printable raffle record. Paper tickets on the day only. |
 
 Code: `js/team.js` (the hub), `js/firebase.js` (the shared Firebase connection), `js/firebase-config.js`
 (project settings – not secret), `css/style.css` (copied from the visitor app so both look alike) and
 `css/team.css`.
 
 Firebase collections used: `meetings`, `actions`, `teamDocs` (hub), `news` (news page),
-`pending`, `full`, `gallery` (photos page), and it reads `registrations` and `checkins` for the dashboard.
+`pending`, `full`, `gallery` (photos page), `config/facts` (key facts), `config/raffle`, `rafflePrizes`,
+`raffleSales`, `raffleCosts`, `raffleDraws` (raffle page), and it reads `registrations` and `checkins` for the dashboard.
 
 ## Making changes
 

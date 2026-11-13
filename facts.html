@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Key facts – Pembrokeshire Silage Day (organisers)</title>
+  <link rel="icon" href="images/logo.png">
+  <link rel="stylesheet" href="css/style.css?v=1">
+  <link rel="stylesheet" href="css/team.css?v=6">
+  <!--
+    ORGANISERS ONLY. Part of the Team hub.
+    The facts the VISITOR APP shows: date, hours, venue, charities, entry
+    prices, raffle details. Saved in Firebase config/facts; every page of the
+    visitor app reads them from there (js/facts.js in silage-day-visitor).
+    The MASTER copy is the "Key assumptions and details" register – each box
+    here carries its register ID. Change the register first, then here.
+  -->
+</head>
+<body>
+<div class="app approve-page">
+  <header class="site-header">
+    <div class="header-row">
+      <img class="header-logo" src="images/logo.png" alt="Pembrokeshire Silage Day" width="116" height="58">
+      <a class="back-hub" href="index.html" aria-label="Back to the Team hub">← Hub</a>
+      <p class="header-date">Team hub<br><span>Key facts</span></p>
+    </div>
+  </header>
+  <main>
+    <h1 class="page-title">📌 Key facts for the app</h1>
+    <p class="page-intro">Everything the visitor app says about the date, times, place, charities and prices comes from here. The master copy is the
+      <a href="https://claude.ai/artifact/Ffdd6WPxpzMLuwCjG71iB8" target="_blank" rel="noopener">Key assumptions and details register</a>:
+      change it there first, then here. Each box shows its register ID.</p>
+
+    <section class="card" id="signin-card">
+      <p id="who">Sign in with your organiser Google account.</p>
+      <button type="button" class="btn" id="signin">Sign in with Google</button>
+      <button type="button" class="btn alt" id="signout" hidden>Sign out</button>
+    </section>
+    <p class="map-message" id="msg" hidden></p>
+
+    <form id="ff" hidden novalidate>
+      <section class="card form-card">
+        <h2>The day</h2>
+        <label class="field" for="f-date"><span class="reg-id">A1</span> Show date</label>
+        <input class="input" id="f-date" type="date" required>
+        <div class="action-row">
+          <div><label class="field" for="f-opens"><span class="reg-id">A2</span> Gates open</label><input class="input" id="f-opens" type="time" required></div>
+          <div><label class="field" for="f-closes"><span class="reg-id">A2</span> Show closes</label><input class="input" id="f-closes" type="time" required></div>
+        </div>
+        <label class="field" for="f-venueEn"><span class="reg-id">A3</span> Venue – English</label>
+        <input class="input" id="f-venueEn" maxlength="100" placeholder="Slade Hall Farm, near Haverfordwest">
+        <label class="field" for="f-venueCy"><span class="reg-id">A3</span> Venue – Cymraeg</label>
+        <input class="input" id="f-venueCy" maxlength="100" placeholder="Fferm Slade Hall, ger Hwlffordd">
+        <label class="field" for="f-postcode"><span class="reg-id">A3</span> Postcode</label>
+        <input class="input" id="f-postcode" maxlength="10">
+      </section>
+
+      <section class="card form-card">
+        <h2><span class="reg-id">A5</span> Charities</h2>
+        <p class="muted">Shown on the home page and the Raffle page, linked to their websites. Leave a row empty to remove it.</p>
+        <div id="charities"></div>
+      </section>
+
+      <section class="card form-card">
+        <h2><span class="reg-id">G5</span> Entry prices</h2>
+        <p class="muted">Paid at the gate. Under-5s are always free. Until "Show prices" is ticked, visitors see "prices to be confirmed" – so you can put a proposal in first.</p>
+        <div class="action-row">
+          <div><label class="field" for="f-adult">Adult (16+) £</label><input class="input" id="f-adult" type="number" min="0" step="0.5" inputmode="decimal" required></div>
+          <div><label class="field" for="f-child">Child (5–15) £</label><input class="input" id="f-child" type="number" min="0" step="0.5" inputmode="decimal" required></div>
+        </div>
+        <label class="check-row"><input type="checkbox" id="f-showPrices"><span><b>Show prices to visitors</b> – tick once they're agreed</span></label>
+      </section>
+
+      <section class="card form-card">
+        <h2><span class="reg-id">G6</span> Raffle</h2>
+        <p class="muted">Tickets are sold on paper at the show, on the day only. Prizes, sales and the draw are on the <a href="raffle.html">Raffle</a> page.</p>
+        <div class="action-row">
+          <div><label class="field" for="f-rafflePrice">Price £ (0 = not set)</label><input class="input" id="f-rafflePrice" type="number" min="0" step="0.5" inputmode="decimal"></div>
+          <div><label class="field" for="f-raffleStrip">Tickets per strip</label><input class="input" id="f-raffleStrip" type="number" min="1" step="1" inputmode="numeric"></div>
+        </div>
+        <label class="field" for="f-raffleDraw">Draw time (empty = not set)</label>
+        <input class="input" id="f-raffleDraw" type="time">
+        <label class="field" for="f-raffleWhereEn">Where the raffle stand is – English</label>
+        <input class="input" id="f-raffleWhereEn" maxlength="120">
+        <label class="field" for="f-raffleWhereCy">… Cymraeg</label>
+        <input class="input" id="f-raffleWhereCy" maxlength="120">
+        <label class="field" for="f-raffleUnclaimedWeeks">Unclaimed prizes kept for (weeks)</label>
+        <input class="input" id="f-raffleUnclaimedWeeks" type="number" min="0" step="1">
+      </section>
+
+      <section class="card form-card">
+        <p class="muted" id="f-status"></p>
+        <p class="form-error" id="f-err" role="alert" hidden></p>
+        <button type="submit" class="btn">Save – update the visitor app</button>
+        <p class="field-hint">Then add a line to the register's change log if it isn't there already.</p>
+      </section>
+    </form>
+  </main>
+</div>
+<script src="js/firebase-config.js?v=1"></script>
+<script src="js/firebase.js?v=1"></script>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const msg = (text) => { $("msg").hidden = !text; $("msg").textContent = text || ""; };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Same starting values as the visitor app's js/facts.js
+const DEFAULTS = {
+  date: "2027-09-11", opens: "10:00", closes: "17:00",
+  venueEn: "Slade Hall Farm, near Haverfordwest", venueCy: "Fferm Slade Hall, ger Hwlffordd", postcode: "SA61 2UX",
+  charities: [
+    { en: "Paul Sartori Foundation", cy: "Sefydliad Paul Sartori", url: "https://paulsartori.org/" },
+    { en: "British Heart Foundation", cy: "Sefydliad Prydeinig y Galon", url: "https://www.bhf.org.uk/" }
+  ],
+  adult: 6, child: 3, showPrices: false,
+  rafflePrice: 0, raffleStrip: 5, raffleDraw: "", raffleWhereEn: "", raffleWhereCy: "", raffleUnclaimedWeeks: 4
+};
+const PLAIN = ["date", "opens", "closes", "venueEn", "venueCy", "postcode", "raffleDraw", "raffleWhereEn", "raffleWhereCy"];
+const NUMBERS = ["adult", "child", "rafflePrice", "raffleStrip", "raffleUnclaimedWeeks"];
+
+function charityRows(list) {
+  const rows = list.concat([{}, {}]).slice(0, Math.max(3, list.length + 1)).slice(0, 6);
+  $("charities").innerHTML = rows.map((c, i) =>
+    '<fieldset class="charity-row"><legend>Charity ' + (i + 1) + '</legend>' +
+    '<label class="field" for="c-en-' + i + '">Name – English</label><input class="input" id="c-en-' + i + '" maxlength="80" value="' + esc(c.en) + '">' +
+    '<label class="field" for="c-cy-' + i + '">Name – Cymraeg</label><input class="input" id="c-cy-' + i + '" maxlength="80" value="' + esc(c.cy) + '">' +
+    '<label class="field" for="c-url-' + i + '">Website</label><input class="input" id="c-url-' + i + '" type="url" maxlength="200" placeholder="https://" value="' + esc(c.url) + '">' +
+    '</fieldset>').join("");
+}
+
+function fill(d) {
+  PLAIN.forEach((k) => $("f-" + k).value = d[k] ?? "");
+  NUMBERS.forEach((k) => $("f-" + k).value = d[k] ?? "");
+  $("f-showPrices").checked = !!d.showPrices;
+  charityRows(d.charities || []);
+}
+
+if (!firebaseConfigured()) {
+  msg("Firebase isn't set up yet – fill in js/firebase-config.js first (see README).");
+  $("signin").disabled = true;
+} else {
+  const { auth, db, A, F } = await getFirebase();
+  const ref = F.doc(db, "config", "facts");
+  $("signin").onclick = () => A.signInWithPopup(auth, new A.GoogleAuthProvider()).catch((e) => msg("Sign-in didn't work: " + e.message));
+  $("signout").onclick = () => A.signOut(auth);
+
+  A.onAuthStateChanged(auth, async (user) => {
+    const organiser = user && !user.isAnonymous;
+    $("signin").hidden = !!organiser; $("signout").hidden = !organiser; $("ff").hidden = !organiser;
+    $("who").textContent = organiser ? "Signed in as " + user.email : "Sign in with your organiser Google account.";
+    if (!organiser) return;
+    let d = DEFAULTS, note = "Not saved yet – these are the app's starting values. Check them against the register and save.";
+    try {
+      const snap = await F.getDoc(ref);
+      if (snap.exists()) {
+        d = { ...DEFAULTS, ...snap.data() };
+        const at = d.updatedAt && d.updatedAt.toDate ? d.updatedAt.toDate().toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+        note = "Last changed by " + (d.updatedBy || "?") + (at ? ", " + at : "") + ".";
+      } else {
+        // First time: carry over prices saved earlier in Tools (config/prices)
+        const old = await F.getDoc(F.doc(db, "config", "prices"));
+        if (old.exists()) { const p = old.data(); d = { ...DEFAULTS, adult: Number(p.adult), child: Number(p.child), showPrices: !!p.show }; }
+      }
+    } catch (e) { msg("Couldn't load the key facts: " + e.message); }
+    fill(d);
+    $("f-status").textContent = note;
+  });
+
+  $("ff").onsubmit = async (e) => {
+    e.preventDefault();
+    const err = (t) => { $("f-err").textContent = t; $("f-err").hidden = false; };
+    $("f-err").hidden = true;
+    const data = {};
+    PLAIN.forEach((k) => data[k] = $("f-" + k).value.trim());
+    NUMBERS.forEach((k) => data[k] = Number($("f-" + k).value) || 0);
+    data.raffleStrip = Math.max(1, Math.round(data.raffleStrip));
+    data.raffleUnclaimedWeeks = Math.round(data.raffleUnclaimedWeeks);
+    data.showPrices = $("f-showPrices").checked;
+    data.charities = [...$("charities").querySelectorAll(".charity-row")].map((row, i) => ({
+      en: $("c-en-" + i).value.trim(), cy: $("c-cy-" + i).value.trim(), url: $("c-url-" + i).value.trim()
+    })).filter((c) => c.en || c.cy);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date)) return err("Please choose the show date (A1).");
+    if (!data.opens || !data.closes) return err("Please fill in the opening hours (A2).");
+    const badUrl = data.charities.find((c) => c.url && !/^https:\/\/\S+\.\S+/.test(c.url));
+    if (badUrl) return err("The website for " + (badUrl.en || badUrl.cy) + " should start with https://");
+    if (data.showPrices && !confirm("Show £" + data.adult + " adult / £" + data.child + " child to visitors now?")) return;
+    data.updatedBy = auth.currentUser.email;
+    data.updatedAt = F.serverTimestamp();
+    try {
+      await F.setDoc(ref, data);
+      $("f-status").textContent = "Saved – the visitor app now shows these. ✓";
+      charityRows(data.charities);
+    } catch (x) {
+      err(x.code === "permission-denied" ? "Not allowed – check you're on the organisers' list and that the latest rules are published (visitor app: firebase/firestore.rules)." : "That didn't save: " + x.message);
+    }
+  };
+}
+</script>
+</body>
+</html>
