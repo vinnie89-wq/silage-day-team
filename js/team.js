@@ -34,7 +34,7 @@ const SECTIONS = ["Running the event", "Site and safety", "Exhibitors and trader
 const ACCESS = { open: ["Open", "opens straight from the link"], sign: ["Sign in", "needs a free Claude account"], invite: ["Invite only", "organisers invited by the owner"] };
 
 let fb, user;
-let meetings = [], actions = [], docs = [], gantt = [];
+let meetings = [], actions = [], docs = [], gantt = [], revisions = [];
 let planSel = null, planView = "focus", planStream = "";
 let tab = (location.hash || "#dashboard").slice(1);
 let stops = [];
@@ -102,6 +102,10 @@ function listen() {
   stops.push(F.onSnapshot(F.query(F.collection(db, "actions"), F.orderBy("createdAt", "desc"), F.limit(300)), (s) => {
     actions = s.docs.map((d) => ({ id: d.id, ...d.data() })); if (["dashboard", "actions"].includes(tab)) show();
   }));
+  stops.push(F.onSnapshot(F.collection(db, "revisions"), (s) => {
+    revisions = s.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.rev || 0) - (a.rev || 0));
+    if (tab === "actions" && $("export-panel") && !$("export-panel").hidden) drawExport();
+  }, () => {}));
   stops.push(F.onSnapshot(F.collection(db, "gantt"), (s) => {
     gantt = s.docs.map((d) => ({ id: d.id, ...d.data() })); if (tab === "dashboard") drawPlan();
   }, () => {}));
@@ -320,7 +324,7 @@ function meetingForm(m) {
    green = on plan · blue = complete · grey = no due date. */
 const STATUSES = { todo: "Not started", doing: "In progress", waiting: "Waiting on someone", blocked: "Blocked", done: "Complete" };
 const RAG = { red: "Overdue", amber: "Due within 7 days", green: "On plan", grey: "No date", blue: "Complete" };
-let actionSort = "due", actionColour = "";
+let actionSort = "due", actionColour = "", exportOpen = false;
 const openEdits = new Set();   // actions whose details are open – kept open when the list refreshes
 function statusOf(a) { return a.done ? "done" : (STATUSES[a.status] && a.status !== "done" ? a.status : "todo"); }
 function ragOf(a) {
@@ -365,6 +369,9 @@ function showActions() {
     '<div class="chips" role="group" aria-label="Show">' + f("open", "Open") + f("mine", "Mine") + f("done", "Done") + f("all", "All") + '</div>' +
     '<div class="rag-key" role="group" aria-label="Filter by colour">' + Object.entries(RAG).map(([k, l]) =>
       '<button type="button" class="rag-chip rag-' + k + (actionColour === k ? " on" : "") + '" data-colour="' + k + '"><span class="rag-dot"></span>' + l + ' <b>' + (counts[k] || 0) + '</b></button>').join("") + '</div>' +
+    '<div class="export-bar"><button type="button" class="btn alt small" id="export-btn">⤓ Export / new revision</button>' +
+      (revisions.length ? '<span class="muted">Last: Rev ' + revisions[0].rev + ', ' + fmtDate(tsMs(revisions[0].at) || Date.now(), { day: "numeric", month: "short", year: "numeric" }) + '</span>' : '<span class="muted">No revisions yet</span>') + '</div>' +
+    '<section class="card export-panel" id="export-panel"' + (exportOpen ? '' : ' hidden') + '></section>' +
     '<div class="sort-row"><label for="a-sort">Sort by</label><select class="input" id="a-sort">' +
       [["due", "Due date"], ["code", "Plan code"], ["owner", "Owner"], ["status", "Status"], ["newest", "Newest first"]].map(([k, l]) => '<option value="' + k + '"' + (actionSort === k ? " selected" : "") + '>' + l + '</option>').join("") +
     '</select><span class="muted">' + list.length + ' shown' + (actionColour ? ' · <button type="button" class="link-btn" id="clear-colour">show all colours</button>' : '') + '</span></div>' +
@@ -375,6 +382,8 @@ function showActions() {
   hub.querySelectorAll("[data-colour]").forEach((b) => b.onclick = () => { actionColour = actionColour === b.dataset.colour ? "" : b.dataset.colour; showActions(); });
   if ($("clear-colour")) $("clear-colour").onclick = () => { actionColour = ""; showActions(); };
   $("a-sort").onchange = (e) => { actionSort = e.target.value; showActions(); };
+  $("export-btn").onclick = () => { exportOpen = !exportOpen; $("export-panel").hidden = !exportOpen; if (exportOpen) drawExport(); };
+  if (exportOpen) drawExport();
   wireActions(hub);
   $("af").onsubmit = async (e) => {
     e.preventDefault();
@@ -461,6 +470,113 @@ function mine(a) {
   return o && (o === (user.displayName || "").toLowerCase() || o === user.email.toLowerCase() || (user.displayName || "").toLowerCase().split(" ")[0] === o);
 }
 
+
+/* ---------- Export and revisions ----------
+   "Export / new revision" saves a numbered snapshot of every action
+   (Firebase "revisions": rev, at, by, note, snapshot) and downloads it
+   as a spreadsheet (CSV – opens in Excel or Google Sheets). It lists what
+   changed since the last revision, and gives a summary to paste into the
+   action tracker document's revision history (or to Claude to update it). */
+const isoDay = (ms) => ms ? new Date(ms - new Date(ms).getTimezoneOffset() * 6e4).toISOString().slice(0, 10) : "";
+function snapshotOf(a) {
+  const comments = Array.isArray(a.comments) ? a.comments : [], last = comments[comments.length - 1];
+  return { id: a.id, code: codeOf(a.text) || "", text: a.text || "", owner: a.owner || "", due: isoDay(tsMs(a.due)), status: statusOf(a), rag: ragOf(a),
+           comments: comments.length, lastComment: last ? last.text : "", lastBy: last ? (last.name || last.by || "") : "", lastAt: last && last.at ? isoDay(last.at) : "" };
+}
+function diffSince(prev) {
+  const now = actions.map(snapshotOf), before = Object.fromEntries((prev ? prev.snapshot || [] : []).map((x) => [x.id, x]));
+  const out = { added: [], completed: [], status: [], dates: [], owners: [], comments: [], removed: [] };
+  if (!prev) return out;
+  now.forEach((a) => {
+    const b = before[a.id];
+    if (!b) { out.added.push(a); return; }
+    if (a.status !== b.status) (a.status === "done" ? out.completed : out.status).push({ a, from: b.status });
+    if (a.due !== b.due) out.dates.push({ a, from: b.due });
+    if (a.owner !== b.owner) out.owners.push({ a, from: b.owner });
+    if (a.comments > b.comments) out.comments.push({ a, n: a.comments - b.comments });
+    delete before[a.id];
+  });
+  out.removed = Object.values(before);
+  return out;
+}
+const shortText = (t) => t.length > 90 ? t.slice(0, 89) + "…" : t;
+const ukDate = (iso) => iso ? new Date(iso + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "no date";
+function diffLines(d) {
+  const L = [];
+  d.added.forEach((a) => L.push("Added: " + shortText(a.text) + (a.due ? " (due " + ukDate(a.due) + ")" : "")));
+  d.completed.forEach(({ a }) => L.push("Completed: " + shortText(a.text)));
+  d.status.forEach(({ a, from }) => L.push("Status " + STATUSES[from] + " → " + STATUSES[a.status] + ": " + shortText(a.text)));
+  d.dates.forEach(({ a, from }) => L.push("Due date " + ukDate(from) + " → " + ukDate(a.due) + ": " + shortText(a.text)));
+  d.owners.forEach(({ a, from }) => L.push("Owner " + (from || "none") + " → " + (a.owner || "none") + ": " + shortText(a.text)));
+  d.comments.forEach(({ a, n }) => L.push(n + " new comment" + (n > 1 ? "s" : "") + " on " + shortText(a.text) + (a.lastComment ? " – latest: “" + shortText(a.lastComment) + "”" : "")));
+  d.removed.forEach((a) => L.push("Deleted: " + shortText(a.text)));
+  return L;
+}
+function drawExport() {
+  const panel = $("export-panel"); if (!panel) return;
+  const last = revisions[0], next = (last ? last.rev || 0 : 0) + 1;
+  const lines = diffLines(diffSince(last));
+  const keepNote = $("rev-note") ? $("rev-note").value : "";
+  panel.innerHTML = '<h2>Export and revisions</h2>' +
+    '<p class="muted">Saving a revision keeps a numbered snapshot of every action, downloads it as a spreadsheet (opens in Excel or Google Sheets), and gives you the summary for the action tracker document\'s revision history.</p>' +
+    '<h3 class="rev-h">' + (last ? 'Changes since Rev ' + last.rev + ' (' + fmtDate(tsMs(last.at) || Date.now(), { day: "numeric", month: "short", year: "numeric" }) + ')' : 'First revision – no earlier one to compare with') + '</h3>' +
+    (last ? (lines.length ? '<ul class="rev-changes">' + lines.map((l) => '<li>' + esc(l) + '</li>').join("") + '</ul>' : '<p class="muted">No changes since then.</p>') : '') +
+    '<label class="field" for="rev-note">Note for Rev ' + next + ' (optional)</label><input class="input" id="rev-note" maxlength="200" placeholder="e.g. After the 15 Nov organising meeting" value="' + esc(keepNote) + '">' +
+    '<div class="meet-card-btns"><button type="button" class="btn" id="rev-save">Save as Rev ' + next + ' and download</button>' +
+      '<button type="button" class="btn alt" id="rev-csv">Download current list only</button></div>' +
+    '<p class="map-message" id="rev-msg" hidden></p>' +
+    (revisions.length ? '<h3 class="rev-h">Revision history</h3><ul class="rev-list">' + revisions.map((r) =>
+      '<li><b>Rev ' + r.rev + '</b> · ' + fmtDate(tsMs(r.at) || Date.now(), { day: "numeric", month: "short", year: "numeric" }) + ' · ' + esc(r.byName || r.by || "") +
+      (r.note ? ' · ' + esc(r.note) : '') + ' · ' + (r.summary ? esc(r.summary) : '') +
+      ' <button type="button" class="link-btn" data-rev-csv="' + r.id + '">download</button> <button type="button" class="link-btn" data-rev-copy="' + r.id + '">copy summary</button></li>').join("") + '</ul>' : '');
+  $("rev-csv").onclick = () => downloadCsv(actions.map(snapshotOf), "Silage Day actions – " + isoDay(Date.now()) + ".csv", null);
+  $("rev-save").onclick = saveRevision;
+  panel.querySelectorAll("[data-rev-csv]").forEach((b) => b.onclick = () => { const r = revisions.find((x) => x.id === b.dataset.revCsv); downloadCsv(r.snapshot || [], "Silage Day actions – Rev " + r.rev + ".csv", r.rev); });
+  panel.querySelectorAll("[data-rev-copy]").forEach((b) => b.onclick = () => copyText(revisionText(revisions.find((x) => x.id === b.dataset.revCopy)), b));
+}
+function revisionText(r) {
+  const counts = {}; (r.snapshot || []).forEach((a) => counts[a.rag] = (counts[a.rag] || 0) + 1);
+  return "Action tracker – Rev " + r.rev + " – " + fmtDate(tsMs(r.at) || Date.now(), { day: "numeric", month: "long", year: "numeric" }) + " – " + (r.byName || r.by || "") + "\n" +
+    (r.note ? "Note: " + r.note + "\n" : "") +
+    "Totals: " + (r.snapshot || []).length + " actions – " + Object.entries(RAG).map(([k, l]) => (counts[k] || 0) + " " + l.toLowerCase()).join(", ") + "\n" +
+    ((r.changes || []).length ? "Changes since Rev " + (r.rev - 1) + ":\n" + r.changes.map((l) => "- " + l).join("\n") : "First revision.");
+}
+async function copyText(text, btn) {
+  try { await navigator.clipboard.writeText(text); const t = btn.textContent; btn.textContent = "copied ✓"; setTimeout(() => btn.textContent = t, 1500); }
+  catch (e) { prompt("Copy this:", text); }
+}
+function downloadCsv(rows, name, rev) {
+  const q = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+  const head = ["Revision", "Plan code", "Action", "Owner", "Due", "Status", "Colour", "Comments", "Latest comment", "Comment by", "Comment date"];
+  const body = rows.slice().sort((a, b) => (a.status === "done") - (b.status === "done") || (a.due || "9999").localeCompare(b.due || "9999"))
+    .map((a) => [rev ? "Rev " + rev : "Current", a.code, a.text, a.owner, a.due, STATUSES[a.status] || a.status, RAG[a.rag] || a.rag, a.comments, a.lastComment, a.lastBy, a.lastAt]);
+  const csv = "\uFEFF" + [head].concat(body).map((r) => r.map(q).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a"); link.href = url; link.download = name; document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+async function saveRevision() {
+  const { F, db } = fb;
+  const last = revisions[0], rev = (last ? last.rev || 0 : 0) + 1;
+  const snapshot = actions.map(snapshotOf), changes = diffLines(diffSince(last));
+  const counts = {}; snapshot.forEach((a) => counts[a.rag] = (counts[a.rag] || 0) + 1);
+  const summary = snapshot.length + " actions: " + (counts.red || 0) + " overdue, " + (counts.amber || 0) + " due this week, " + (counts.blue || 0) + " complete" + (last ? "; " + changes.length + " changes" : "");
+  const data = { kind: "actions", rev, note: $("rev-note").value.trim(), by: user.email, byName: user.displayName || user.email, at: F.serverTimestamp(), snapshot, changes, summary };
+  $("rev-save").disabled = true;
+  try {
+    await F.setDoc(F.doc(db, "revisions", "actions-rev-" + String(rev).padStart(3, "0")), data);
+    downloadCsv(snapshot, "Silage Day actions – Rev " + rev + ".csv", rev);
+    const text = revisionText({ ...data, at: null });
+    $("rev-note").value = "";
+    $("rev-msg").hidden = false;
+    $("rev-msg").innerHTML = 'Saved as <b>Rev ' + rev + '</b> and downloaded. ✓ <button type="button" class="link-btn" id="rev-copy-now">Copy the summary</button> for the action tracker\'s revision history.';
+    $("rev-copy-now").onclick = (e) => copyText(text, e.target);
+  } catch (x) {
+    $("rev-msg").hidden = false;
+    $("rev-msg").textContent = x.code === "permission-denied" ? "Not allowed – publish the latest rules (visitor app: firebase/firestore.rules)." : "That didn't save: " + x.message;
+  }
+  $("rev-save").disabled = false;
+}
 
 /* ---------- Documents ---------- */
 let editingDocs = false;
