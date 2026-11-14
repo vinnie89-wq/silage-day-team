@@ -422,8 +422,45 @@ function actionItem(a) {
         '<h4 class="comments-h">Comments</h4>' +
         (comments.length ? '<ul class="comment-list">' + comments.map((c) => '<li><span>' + esc(c.text) + '</span><small>' + esc(c.name || c.by || "") + (c.at ? ' · ' + fmtDate(c.at) : '') + '</small></li>').join("") + '</ul>' : '<p class="muted">No comments yet.</p>') +
         '<form class="comment-add" data-comment-form="' + a.id + '"><input class="input" data-comment-input="' + a.id + '" maxlength="500" placeholder="Add a comment or update…" aria-label="Comment"><button type="submit" class="btn alt small">Add</button></form>' +
-        '<button type="button" class="link-btn del-link" data-del-action="' + a.id + '">Delete this action</button>' +
+        '<div class="ask-row"><a class="btn alt small ask-claude" data-ask="' + a.id + '" href="https://claude.ai/new" target="_blank" rel="noopener">🤖 Ask Claude what this is</a>' +
+        '<button type="button" class="link-btn del-link" data-del-action="' + a.id + '">Delete this action</button></div>' +
       '</div></div></li>';
+}
+
+/* "Ask Claude what this is": opens a new Claude chat with the question already
+   written – the action, its plan task, owner, dates, status, comments and links
+   to the team's planning documents – so Claude can explain it. Nothing is sent
+   until you press send in Claude. */
+function askClaudeUrl(a) {
+  const code = codeOf(a.text), g = code && gantt.find((x) => (x.code || x.id) === code);
+  let task = "";
+  if (g) {
+    try {
+      const plan = planNow(), t = plan.by[code];
+      const next = plan.tasks.filter((x) => x.after.includes(code)).map((x) => x.code + " " + x.name);
+      task = "It belongs to plan task " + code + " – " + t.name + " (workstream: " + t.stream + "; " +
+        (t.fixed ? "fixed date " + Gantt.fmt(t.es) : "latest finish " + Gantt.fmt(t.lf) + ", " + Math.floor(t.slack / 7) + " weeks' slack") +
+        (t.after.length ? "; waits for " + t.after.map((c) => c + " " + (plan.by[c] ? plan.by[c].name : "")).join(", ") : "") +
+        (next.length ? "; then " + next.join(", ") : "") + (t.note ? "; note: " + t.note : "") + ").";
+    } catch (e) { task = "It belongs to plan task " + code + " – " + (g.name || "") + "."; }
+  }
+  const comments = (Array.isArray(a.comments) ? a.comments : []).slice(-5).map((c) => "- " + (c.name || c.by || "") + ": " + c.text).join("\n");
+  // The core plan documents first, then the one(s) for this task's workstream
+  const words = { "Emergency and medical": /emergency|marshalling/i, "Safety and licensing": /event management|risk assessment|method statement|licen/i,
+    "Traffic": /traffic|sign/i, "Exhibitors and traders": /exhibitor|trader|scrutineer/i, "Sponsorship and charity": /sponsor|charity|raffle|CLAAS|GRASSMEN/i,
+    "Volunteers": /marshal|role|briefing/i, "Site and suppliers": /fencing|site|sign/i, "Fields and build": /site preparation|method statement|fencing/i,
+    "Event app": /app|privacy/i, "Governance": /role|finance|event management/i };
+  const stream = g && g.stream, core = /action tracker|gantt|critical path|key assumptions/i;
+  const related = docs.filter((d) => core.test(d.title || "")).concat(docs.filter((d) => stream && words[stream] && words[stream].test(d.title || "") && !core.test(d.title || "")))
+    .slice(0, 8).map((d) => "- " + d.title + ": " + d.url).join("\n");
+  const due = tsMs(a.due);
+  const q = "I'm one of the organisers of Pembrokeshire Silage Day – a charity working silage demonstration day at Slade Hall Farm near Haverfordwest on " + showDay().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) + ". " +
+    "This action is on our Team hub action list and I'm not sure what it means or why we need it. Please explain in plain English: what it is, why it matters for the event, what \"done\" looks like, and the first practical step. If it depends on another task, a decision or a document, say which.\n\n" +
+    "Action: " + a.text + "\n" + (task ? task + "\n" : "") +
+    "Owner: " + (a.owner || "none yet") + " · Due: " + (due ? new Date(due).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "no date") + " · Status: " + STATUSES[statusOf(a)] + "\n" +
+    (comments ? "Comments so far:\n" + comments + "\n" : "") +
+    (related ? "\nOur planning documents (open them if you can):\n" + related : "");
+  return "https://claude.ai/new?q=" + encodeURIComponent(q.slice(0, 6000));
 }
 
 // Make the open/close, status, date, owner, comments and delete work (Actions page and the plan)
@@ -464,6 +501,11 @@ function wireActions(root) {
     try { await upd(id, { comments }); } catch (x) { alert("The comment didn't save: " + x.message); input.value = text; }
   });
   root.querySelectorAll("[data-del-action]").forEach((b) => b.onclick = () => { if (confirm("Delete this action?")) F.deleteDoc(F.doc(db, "actions", b.dataset.delAction)); });
+  // Build the question at the moment it's tapped, so it has the latest plan, comments and documents
+  root.querySelectorAll("[data-ask]").forEach((l) => {
+    const fill = () => { const a = actions.find((x) => x.id === l.dataset.ask); if (a) l.href = askClaudeUrl(a); };
+    l.addEventListener("pointerdown", fill); l.addEventListener("focus", fill); l.addEventListener("click", fill);
+  });
 }
 function mine(a) {
   const o = (a.owner || "").toLowerCase();
@@ -766,7 +808,9 @@ function planDetail(plan, t) {
     (linked.length ? '<ul class="action-list plan-actions">' + linked.map(actionItem).join("") + '</ul>' : '<p class="muted">None yet.</p>') +
     '<form class="plan-add" id="pa"><input class="input" id="pa-text" maxlength="270" placeholder="Add an action for ' + G.esc(t.code) + '…"><button type="submit" class="btn alt small">Add</button></form>' +
     '<div class="meet-card-btns"><button type="button" class="btn alt small" id="pt-done">' + (t.done ? "Mark not done" : "✓ Mark task done") + '</button>' +
-      '<button type="button" class="btn alt small" id="pt-edit">Edit task</button><button type="button" class="btn alt small" id="pt-close">Close</button></div>' +
+      '<button type="button" class="btn alt small" id="pt-edit">Edit task</button>' +
+      '<a class="btn alt small" href="' + G.esc(askClaudeUrl({ text: t.code + " ◆ " + t.name, owner: "", due: null, comments: [] })) + '" target="_blank" rel="noopener">🤖 Ask Claude</a>' +
+      '<button type="button" class="btn alt small" id="pt-close">Close</button></div>' +
     '<div id="pt-form"></div></section>';
   const { F, db } = fb;
   el.querySelectorAll("[data-plan]").forEach((b) => b.onclick = () => { planSel = b.dataset.plan; drawPlan(); });
